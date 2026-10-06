@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+.env
+chaos_state.json
+trace.jsonl
+*.log
+screenshots/
+ui/screenshots/
+ui/*.png
+*.db
+.pytest_cache/
+.DS_Store
