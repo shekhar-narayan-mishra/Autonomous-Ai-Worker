@@ -14,30 +14,23 @@ from playwright.async_api import async_playwright
 import yaml
 from agent.events import current_event_bus, EventBus
 
-SYSTEM_PROMPT = """You are an Autonomous AI Task Worker.
-Your goal is to complete the user's task using the available tools.
-You must output ONLY valid JSON matching this schema:
-{
-  "thought": "Your reasoning based on the last observation",
-  "action": "tool_name",
-  "args": {"arg1": "val1"},
-  "expected_outcome": "What you expect to happen"
-}
+SYSTEM_PROMPT = """Autonomous AI. Output ONLY JSON:
+{"thought": "...", "action": "...", "args": {...}, "expected_outcome": "..."}
 
-Available environment:
+Environment:
 {environment_context}
 
-Available tools:
+Tools:
 {tool_registry}
 
-Guidelines:
-- CRITICAL: You must execute the task yourself using the browser tool.
-- ASK POLICY: Ask the human ONLY when (a) multiple candidates match and it's ambiguous, (b) required info is missing and cannot be found with any tool, (c) an action needs explicit approval, or (d) you are blocked after retries.
-- NEVER ask for info discoverable via the environment config (like URLs or credentials) or tools.
-- Use 'save_fact' to store important extracted info (e.g. amount, due date) so you don't lose it.
-- If a form submit fails, read the error and correct it.
-- When you are done, call 'finish' with a summary.
-- If an invoice is missing, report "not found" via finish and do not fabricate data.
+Rules:
+- Before leaving a page, save_fact every value you'll need later (ids, amounts, dates, names).
+- Check Known Facts before revisiting a page. If already logged in to an app, don't log in again.
+- Ask human ONLY if ambiguous, critical info missing, or blocked.
+- Do NOT finish until task is submitted in ERP or confirmed missing.
+
+Example:
+{"thought": "Extracting total", "action": "save_fact", "args": {"key": "invoice_total", "value": "100.00"}, "expected_outcome": "saved"}
 """
 
 async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event_bus: EventBus = None, run_id: str = None):
@@ -75,21 +68,60 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 
             try:
                 with open("config/environment.yaml", "r") as f:
-                    env_yaml = f.read()
+                    env_dict = yaml.safe_load(f)
+                
+                active_sessions = []
+                if browser.BrowserContext.page:
+                    cookies = await browser.BrowserContext.page.context.cookies()
+                    cookie_domains = {c['domain'] for c in cookies}
+                    
+                    # Compress apps by removing verbose fields
+                    for app in env_dict.get('apps', []):
+                        app.pop("tools_to_use", None) # implied
+                        app.pop("purpose", None) # compress
+                        host = app['base_url'].replace('http://', '').replace('https://', '').split('/')[0].split(':')[0]
+                        if host in cookie_domains:
+                            active_sessions.append(app['name'])
+                            app.pop("credentials", None) # no need if logged in
+                
+                env_yaml = yaml.dump(env_dict)
+                if active_sessions:
+                    env_yaml = "Active: " + ", ".join(active_sessions) + "\n" + env_yaml
             except FileNotFoundError:
-                env_yaml = "No environment config provided."
-            prompt = SYSTEM_PROMPT.replace("{tool_registry}", registry.get_system_prompt_segment())
-            prompt = prompt.replace("{environment_context}", env_yaml)
-            prompt += f"\n\n{memory.format_for_prompt()}"
+                env_yaml = "No env config"
+                
+            sys_segment = SYSTEM_PROMPT.replace("{tool_registry}", registry.get_system_prompt_segment())
+            sys_segment = sys_segment.replace("{environment_context}", env_yaml)
+            mem_segment = memory.format_for_prompt(rolling_window_size=2)
+            
+            prompt = sys_segment + f"\n\n{mem_segment}"
             
             if rm.detect_loop():
                 history.append({"role": "user", "content": "You are repeating the same action. Change your strategy or ask_human."})
             
+            recent_history = history[-8:] if len(history) > 8 else history
+            user_messages = [{"role": "user", "content": f"Task: {task}"}] + recent_history
+            
+            # Print token counts
+            sys_env_toks = len(sys_segment) // 4
+            mem_toks = len(mem_segment) // 4
+            hist_toks = sum(len(m.get("content", "")) for m in user_messages) // 4
+            snap_toks = len(user_messages[-1].get("content", "")) // 4 if user_messages else 0
+            
+            print(f"[Prompt Tokens] Sys+Env: ~{sys_env_toks} | Memory: ~{mem_toks} | History: ~{hist_toks} | Last Snap: ~{snap_toks}")
+            est_tokens_before = sys_env_toks + mem_toks + hist_toks
+            
             try:
-                action, metadata = await generate_action(prompt, [{"role": "user", "content": f"Task: {task}"}] + history)
+                action, metadata = await generate_action(prompt, user_messages)
             except Exception as e:
                 print(f"LLM Error: {e}")
                 break
+                
+            provider_used = metadata.get("provider", "unknown")
+            tokens_used = metadata.get("tokens", {})
+            p_tok = tokens_used.get("prompt", est_tokens_before)
+            c_tok = tokens_used.get("completion", 0)
+            print(f"[Step {step} Tokens] Provider: {provider_used} | Est Input: ~{est_tokens_before} | Actual: prompt={p_tok}, completion={c_tok}")
                 
             rm.record_action(action.action, action.args)
             save_fact_tool.current_step = step

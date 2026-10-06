@@ -25,6 +25,11 @@ async def main():
     print("\nFinal ERP Bills:")
     for b in bills:
         print(dict(b))
+        
+    from agent.llm import get_run_metrics
+    metrics = get_run_metrics()
+    metrics.finalize()
+    print(f"\n[Run Metrics] Status: {metrics.status} | Providers: {metrics.providers_used} | Models: {metrics.models_used} | Switches: {metrics.model_switches} | 429s: {metrics.rate_limit_429_count} | Calls: {metrics.successful_calls} | Prompt Tokens: {metrics.total_prompt_tokens} | Comp Tokens: {metrics.total_completion_tokens} | Latency: {metrics.total_latency_ms}ms")
 
 if __name__ == "__main__":
     asyncio.run(main())

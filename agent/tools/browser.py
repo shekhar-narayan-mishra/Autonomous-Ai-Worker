@@ -32,11 +32,11 @@ class BrowserContext:
                 text = text.trim().substring(0, 50).replace(/\\n/g, ' ');
                 result.push(`[${aid}] ${tag} "${text}"`);
             }
-            let bodyText = document.body.innerText.substring(0, 500).replace(/\\n/g, ' ');
+            let bodyText = document.body.innerText.substring(0, 300).replace(/\\n/g, ' ');
             return {
                 url: document.location.href,
                 title: document.title,
-                elements: result,
+                elements: result.slice(0, 25),
                 text: bodyText
             };
         }
@@ -45,22 +45,28 @@ class BrowserContext:
         cls.elements_map = {item.split(' ')[0][1:-1]: f"[data-aid='{item.split(' ')[0][1:-1]}']" for item in data['elements']}
         
         elements_str = "\n".join(data['elements'])
-        return f"URL: {data['url']}\nTitle: {data['title']}\nVisible Text: {data['text']}...\nInteractive Elements:\n{elements_str}"
+        raw_snap = f"URL: {data['url']}\nTitle: {data['title']}\nVisible Text: {data['text']}...\nInteractive Elements:\n{elements_str}"
+        # Max ~800 tokens (~3000 chars)
+        if len(raw_snap) > 3000:
+            raw_snap = raw_snap[:3000] + "\n[Snapshot truncated]"
+        return raw_snap
 
 class BrowserArgs(BaseModel):
-    command: str = Field(description="goto, click, type, select, press, wait, snapshot, extract_text")
+    command: str = Field(description="goto, click, type, select, press, wait, snapshot, extract_text, fill_form")
     url: str | None = Field(None, description="URL for goto")
     selector_id: str | None = Field(None, description="The e12 ID of the element to interact with")
     text: str | None = Field(None, description="Text to type or select")
     key: str | None = Field(None, description="Key to press (e.g. Enter)")
+    fields: dict[str, str] | None = Field(None, description="For fill_form: Dict mapping e12 ID to text to type")
+    submit: str | None = Field(None, description="For fill_form: e12 ID of the submit button to click")
 
 class BrowserTool(BaseTool):
     name = "browser"
-    description = "Control the web browser. Commands: goto, click, type, select, press, wait, snapshot, extract_text."
+    description = "Control the web browser. Commands: goto, click, type, select, press, wait, snapshot, extract_text, fill_form."
     args_schema = BrowserArgs
     risk_level = RiskLevel.READ
 
-    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None) -> ToolResult:
+    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None, fields: dict = None, submit: str = None) -> ToolResult:
         page = BrowserContext.page
         if not page and command != 'goto':
             return ToolResult(ok=False, observation="Browser not initialized. Use goto first.")
@@ -84,6 +90,13 @@ class BrowserTool(BaseTool):
                 await page.wait_for_load_state("networkidle")
             elif command == "wait":
                 await asyncio.sleep(2)
+            elif command == "fill_form":
+                if fields:
+                    for sid, val in fields.items():
+                        await page.fill(f"[data-aid='{sid}']", val, timeout=5000)
+                if submit:
+                    await page.click(f"[data-aid='{submit}']", timeout=5000)
+                    await page.wait_for_load_state("networkidle")
             elif command == "snapshot":
                 pass
             elif command == "extract_text":

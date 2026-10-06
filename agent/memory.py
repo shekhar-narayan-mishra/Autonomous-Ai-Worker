@@ -9,7 +9,7 @@ class MemoryStore:
     def save_fact(self, key: str, value: str | dict, source_step: int):
         self.facts[key] = {"value": value, "source_step": source_step}
         
-    def format_for_prompt(self, rolling_window_size: int = 5) -> str:
+    def format_for_prompt(self, rolling_window_size: int = 4) -> str:
         facts_str = "Known Facts:\n"
         for k, v in self.facts.items():
             facts_str += f"- {k}: {v['value']} (from step {v['source_step']})\n"
