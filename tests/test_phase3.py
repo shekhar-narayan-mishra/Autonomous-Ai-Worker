@@ -34,6 +34,7 @@ def test_verifier():
     os.makedirs("mock_env/vendor_portal", exist_ok=True)
     os.makedirs("mock_env/erp", exist_ok=True)
     pdb = sqlite3.connect("mock_env/vendor_portal/data.db")
+    pdb.execute("CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, vendor TEXT, amount REAL, due_date TEXT, status TEXT)")
     pdb.execute("DELETE FROM invoices WHERE id = 'INV-TEST'")
     pdb.execute("INSERT INTO invoices (id, amount, due_date, vendor) VALUES ('INV-TEST', 100.0, '2024-01-01', 'Test Corp')")
     pdb.commit()

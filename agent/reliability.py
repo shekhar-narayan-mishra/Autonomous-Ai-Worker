@@ -32,8 +32,12 @@ class ReliabilityManager:
 
     def classify_error(self, error: Exception | str) -> ErrorClassification:
         err_str = str(error).lower()
-        if any(x in err_str for x in ["timeout", "network", "500", "connection", "rate limit", "429"]):
+        if any(x in err_str for x in ["timeout", "network", "net::", "500", "connection", "rate limit", "429"]):
+            # Note: Playwright timeout often means a selector wasn't found (wrong approach)
+            # but if it says "timeout" it usually catches here. Let's make "waiting for selector" WRONG_APPROACH.
+            if "waiting for selector" in err_str or "waiting for locator" in err_str:
+                return ErrorClassification.WRONG_APPROACH
             return ErrorClassification.TRANSIENT
-        if "not found" in err_str or "invalid" in err_str or "unsupported" in err_str:
+        if any(x in err_str for x in ["not found", "invalid", "unsupported", "waiting for selector", "waiting for locator", "attached to the dom"]):
             return ErrorClassification.WRONG_APPROACH
         return ErrorClassification.BLOCKED
