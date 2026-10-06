@@ -34,9 +34,8 @@ def test_verifier():
     os.makedirs("mock_env/vendor_portal", exist_ok=True)
     os.makedirs("mock_env/erp", exist_ok=True)
     pdb = sqlite3.connect("mock_env/vendor_portal/data.db")
-    pdb.execute("CREATE TABLE IF NOT EXISTS invoices (id TEXT, amount REAL, due_date TEXT)")
-    pdb.execute("DELETE FROM invoices")
-    pdb.execute("INSERT INTO invoices VALUES ('INV-TEST', 100.0, '2024-01-01')")
+    pdb.execute("DELETE FROM invoices WHERE id = 'INV-TEST'")
+    pdb.execute("INSERT INTO invoices (id, amount, due_date, vendor) VALUES ('INV-TEST', 100.0, '2024-01-01', 'Test Corp')")
     pdb.commit()
     
     edb = sqlite3.connect("mock_env/erp/erp.db")
@@ -46,6 +45,6 @@ def test_verifier():
     edb.commit()
     
     v = InvoiceEntryVerifier()
-    res = v.verify({"invoice_id": "INV-TEST"})
+    res = v.verify({"vendor_name": "Test Corp"})
     assert not res.passed
     assert any(c.name == "Amount match" and not c.passed for c in res.checks)
