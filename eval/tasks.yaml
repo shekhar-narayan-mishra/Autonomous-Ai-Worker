@@ -1,0 +1,65 @@
+- id: "base_entry"
+  task: "Find the latest invoice from Acme Corp, extract the amount and due date, and enter it into the ERP."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  expected_outcome: "success"
+
+- id: "different_vendor"
+  task: "Find the latest invoice from TechFlow, extract the amount and due date, and enter it into the ERP."
+  verifier: "invoice_entry"
+  vendor_name: "TechFlow"
+  expected_outcome: "success"
+
+- id: "overdue_flag"
+  task: "Find an overdue invoice from Acme Corp and enter it into the ERP with the notes 'OVERDUE'."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  expected_notes: "OVERDUE"
+  expected_outcome: "success"
+
+- id: "reconcile_mismatch"
+  task: "Reconcile the invoices for Acme Corp in the ERP with the Vendor Portal. If there are any mismatches in amount or due date, report them in the final summary."
+  verifier: "report"
+  expected_in_summary: ["INV-100", "INV-101", "mismatch"]
+  expected_outcome: "success"
+
+- id: "ambiguous_duplicate"
+  task: "Find the latest invoice from Globex and enter it into the ERP."
+  verifier: "invoice_entry"
+  vendor_name: "Globex"
+  expected_outcome: "must_ask_clarification"
+  expected_questions:
+    which: "INV-AMB-1 is the correct one"
+    globex: "INV-AMB-1"
+
+- id: "wrong_vendor"
+  task: "Find the latest invoice from UnknownCorp and enter it into the ERP."
+  verifier: "invoice_entry"
+  vendor_name: "UnknownCorp"
+  expected_outcome: "must_report_not_found"
+
+- id: "missing_invoice"
+  task: "Find invoice INV-999 and enter it into the ERP."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  expected_outcome: "must_report_not_found"
+
+
+- id: "amount_only"
+  task: "Find the latest invoice from Acme Corp and enter only its amount and vendor into the ERP. Leave due date blank."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  ignore_due_date: true
+  expected_outcome: "success"
+
+- id: "duplicate_detection"
+  task: "Check if invoice INV-100 for Acme Corp is already in the ERP. If it is, do not enter it again, just finish."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  expected_outcome: "success"
+
+- id: "phrased_differently"
+  task: "Look up Acme Corp's most recent bill on the vendor site, grab the total and date, and punch it into the accounting system."
+  verifier: "invoice_entry"
+  vendor_name: "Acme Corp"
+  expected_outcome: "success"
