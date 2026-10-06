@@ -1,0 +1,15 @@
+apps:
+  - name: "Vendor Portal"
+    base_url: "http://localhost:8001"
+    purpose: "View and search vendor invoices"
+    credentials:
+      username: "admin"
+      password: "password123"
+    tools_to_use: ["browser"]
+  - name: "Internal ERP"
+    base_url: "http://localhost:8002"
+    purpose: "Data entry for accounting, entering invoice amounts and due dates"
+    credentials:
+      username: "admin"
+      password: "admin"
+    tools_to_use: ["browser"]
