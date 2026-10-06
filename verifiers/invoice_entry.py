@@ -1,8 +1,5 @@
 import sqlite3
-from agent.verifier import BaseVerifier, VerifierResult, CheckResult
-
-import sqlite3
-from agent.verifier import BaseVerifier, VerifierResult, CheckResult
+from agent.verifier import BaseVerifier, CheckResult, VerifierResult
 
 class InvoiceEntryVerifier(BaseVerifier):
     def verify(self, task_args: dict) -> VerifierResult:

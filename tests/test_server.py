@@ -1,8 +1,8 @@
-import pytest
+import json
+import os
+
 from fastapi.testclient import TestClient
 from server import app
-import os
-import json
 
 client = TestClient(app)
 
