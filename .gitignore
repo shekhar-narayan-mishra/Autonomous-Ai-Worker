@@ -11,3 +11,4 @@ ui/*.png
 *.db
 .pytest_cache/
 .DS_Store
+.llm_state.json
