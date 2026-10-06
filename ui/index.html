@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autonomous AI Task Worker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --surface-hover: #334155;
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 2rem;
+        }
+
+        /* Sidebar Controls */
+        .sidebar {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+            height: fit-content;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+            font-weight: 600;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .form-group {
+            margin-bottom: 1.2rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 0.75rem;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: white;
+            font-family: inherit;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+        
+        input[type="text"]:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Main View */
+        .main-view {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Environment Panel */
+        .env-toggle {
+            cursor: pointer;
+            color: var(--primary-color);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .env-content {
+            display: none;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+        }
+        .env-content pre {
+            background: rgba(0,0,0,0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+        
+        /* Timeline */
+        .timeline {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            max-height: 500px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+
+        .step-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            animation: slideIn 0.3s ease-out forwards;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .step-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-badge {
+            background: var(--primary-color);
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        
+        .retry-badge {
+            background: var(--warning-color);
+            margin-left: 0.5rem;
+        }
+
+        .step-thought {
+            font-style: italic;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .step-obs {
+            font-family: monospace;
+            background: rgba(0,0,0,0.3);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: #a78bfa;
+            white-space: pre-wrap;
+        }
+
+        /* Screenshots */
+        .screenshot-container img {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal {
+            background: var(--surface-color);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+        .btn-danger { background: var(--danger-color); }
+        .btn-danger:hover { background: #dc2626; }
+        
+        /* Final Panel */
+        #final-panel {
+            display: none;
+        }
+        .check-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+        }
+        .check-table th, .check-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .check-pass { color: var(--success-color); }
+        .check-fail { color: var(--danger-color); }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="sidebar">
+        <h1>Autonomous AI Worker</h1>
+        
+        <div class="form-group">
+            <label>Task Description</label>
+            <textarea id="task-input" rows="4">Find the latest invoice from Acme Corp, extract the amount and due date, and enter it into the ERP.</textarea>
+        </div>
+        
+        <div class="form-group">
+            <label>Vendor Name (for verifier)</label>
+            <input type="text" id="vendor-input" value="Acme Corp">
+        </div>
+
+        <div class="form-group">
+            <label>Chaos Flag</label>
+            <select id="chaos-select">
+                <option value="">None (Base Run)</option>
+                <option value="slow_load">Slow Load</option>
+                <option value="random_popup_modal">Random Popup Modal</option>
+                <option value="expired_session">Expired Session</option>
+                <option value="validation_error_on_first_submit">Validation Error on 1st Submit</option>
+                <option value="missing_field">Missing Field</option>
+                <option value="flaky_500">Flaky 500</option>
+            </select>
+        </div>
+
+        <div class="form-group checkbox-group">
+            <input type="checkbox" id="auto-approve" checked>
+            <label for="auto-approve" style="margin:0;">Auto-Approve Actions</label>
+        </div>
+
+        <button id="run-btn" onclick="startRun()">Run Task</button>
+        
+        <div class="panel" style="margin-top: 2rem; padding: 1rem;">
+            <div class="env-toggle" onclick="toggleEnv()">
+                <span>⚙️ Environment Config</span>
+                <span id="env-arrow">▼</span>
+            </div>
+            <div class="env-content" id="env-content">
+                <pre id="env-yaml">Loading...</pre>
+            </div>
+        </div>
+    </div>
+
+    <div class="main-view">
+        <div class="panel">
+            <h2>Live Timeline</h2>
+            <div class="timeline" id="timeline"></div>
+        </div>
+        
+        <div class="panel">
+            <h2>Browser View</h2>
+            <div class="screenshot-container" id="screenshot-container">
+                <p style="color: var(--text-muted); font-style: italic;">No screenshots yet.</p>
+            </div>
+        </div>
+        
+        <div class="panel" id="final-panel">
+            <h2>Run Complete</h2>
+            <div id="final-summary"></div>
+            <table class="check-table" id="verifier-table">
+                <thead>
+                    <tr>
+                        <th>Check</th>
+                        <th>Status</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+        <h2 id="modal-title">Approval Required</h2>
+        <p id="modal-body" style="margin-bottom: 1rem;"></p>
+        
+        <div id="modal-input-container" style="display: none;">
+            <input type="text" id="modal-input" placeholder="Type your answer...">
+        </div>
+
+        <div class="modal-buttons" id="modal-approval-btns" style="display: none;">
+            <button class="btn-danger" onclick="respondToAgent('reject')">Reject</button>
+            <button onclick="respondToAgent('approve')">Approve</button>
+        </div>
+        
+        <div class="modal-buttons" id="modal-submit-btns" style="display: none;">
+            <button onclick="respondToAgent(document.getElementById('modal-input').value)">Submit</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentRunId = null;
+    let eventSource = null;
+
+    // Load Env
+    fetch('/env').then(r => r.json()).then(data => {
+        document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
+    });
+
+    function toggleEnv() {
+        const content = document.getElementById('env-content');
+        const arrow = document.getElementById('env-arrow');
+        if (content.style.display === 'block') {
+            content.style.display = 'none';
+            arrow.textContent = '▼';
+        } else {
+            content.style.display = 'block';
+            arrow.textContent = '▲';
+        }
+    }
+
+    async function startRun() {
+        const task = document.getElementById('task-input').value;
+        const vendor = document.getElementById('vendor-input').value;
+        const chaos = document.getElementById('chaos-select').value;
+        const autoApprove = document.getElementById('auto-approve').checked;
+
+        document.getElementById('run-btn').disabled = true;
+        document.getElementById('run-btn').textContent = "Running...";
+        document.getElementById('timeline').innerHTML = "";
+        document.getElementById('final-panel').style.display = "none";
+        document.getElementById('screenshot-container').innerHTML = "<p style='color: var(--text-muted); font-style: italic;'>No screenshots yet.</p>";
+        
+        if (eventSource) eventSource.close();
+
+        const res = await fetch('/run', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                task: task,
+                chaos: chaos || null,
+                auto_approve: autoApprove,
+                vendor_name: vendor
+            })
+        });
+        const data = await res.json();
+        currentRunId = data.run_id;
+        
+        connectSSE(currentRunId);
+    }
+
+    function connectSSE(runId) {
+        eventSource = new EventSource(`/stream/${runId}`);
+        
+        eventSource.onmessage = (e) => {
+            const event = JSON.parse(e.data);
+            
+            if (event.type === 'step') {
+                addStep(event.data);
+                if (event.data.screenshot_url) {
+                    document.getElementById('screenshot-container').innerHTML = 
+                        `<img src="${event.data.screenshot_url}?t=${Date.now()}" alt="Browser view">`;
+                }
+            } 
+            else if (event.type === 'approval_request') {
+                showModal("Approval Required", 
+                    `Action: <b>${event.data.action}</b><br>Args: ${JSON.stringify(event.data.args)}<br><br>Impact:<br><pre style="background:rgba(0,0,0,0.2);padding:1rem;">${event.data.diff}</pre>`,
+                    'approval'
+                );
+            }
+            else if (event.type === 'clarification_request') {
+                showModal("Clarification Required", event.data.question, 'clarification');
+            }
+            else if (event.type === 'verifier_result') {
+                showFinal(event.data);
+            }
+            else if (event.type === 'final') {
+                eventSource.close();
+                document.getElementById('run-btn').disabled = false;
+                document.getElementById('run-btn').textContent = "Run Task";
+            }
+        };
+    }
+
+    function addStep(data) {
+        const tl = document.getElementById('timeline');
+        const retry = tl.innerHTML.includes(data.action) ? '<span class="step-badge retry-badge">Retry</span>' : '';
+        const card = document.createElement('div');
+        card.className = 'step-card';
+        card.innerHTML = `
+            <div class="step-header">
+                <div>
+                    <span class="step-badge">Step ${data.step}</span>
+                    <span class="step-badge" style="background:var(--surface-hover); margin-left:0.5rem;">${data.action}</span>
+                    ${retry}
+                </div>
+                <span style="font-size:0.8rem;color:var(--text-muted);">${data.latency_ms}ms</span>
+            </div>
+            <div class="step-thought">${data.thought}</div>
+            <div class="step-obs">${data.observation}</div>
+        `;
+        tl.appendChild(card);
+        tl.scrollTop = tl.scrollHeight;
+    }
+
+    function showModal(title, body, type) {
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-body').innerHTML = body;
+        
+        if (type === 'approval') {
+            document.getElementById('modal-input-container').style.display = 'none';
+            document.getElementById('modal-approval-btns').style.display = 'flex';
+            document.getElementById('modal-submit-btns').style.display = 'none';
+        } else {
+            document.getElementById('modal-input-container').style.display = 'block';
+            document.getElementById('modal-input').value = "";
+            document.getElementById('modal-approval-btns').style.display = 'none';
+            document.getElementById('modal-submit-btns').style.display = 'flex';
+        }
+        
+        document.getElementById('modal-overlay').style.display = 'flex';
+    }
+
+    async function respondToAgent(response) {
+        document.getElementById('modal-overlay').style.display = 'none';
+        await fetch(`/respond/${currentRunId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({response: response})
+        });
+    }
+
+    function showFinal(verifierData) {
+        const panel = document.getElementById('final-panel');
+        const summary = document.getElementById('final-summary');
+        const tbody = document.querySelector('#verifier-table tbody');
+        
+        panel.style.display = 'block';
+        
+        if (verifierData.passed) {
+            summary.innerHTML = `<h3 style="color:var(--success-color);">✅ Verification Passed</h3>`;
+        } else {
+            summary.innerHTML = `<h3 style="color:var(--danger-color);">❌ Verification Failed</h3>`;
+        }
+        
+        tbody.innerHTML = "";
+        verifierData.checks.forEach(c => {
+            const tr = document.createElement('tr');
+            const statusClass = c.passed ? 'check-pass' : 'check-fail';
+            const icon = c.passed ? '✓' : '✗';
+            tr.innerHTML = `
+                <td>${c.name}</td>
+                <td class="${statusClass}"><b>${icon} ${c.passed ? 'Pass' : 'Fail'}</b></td>
+                <td>${c.details}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+</script>
+
+</body>
+</html>
