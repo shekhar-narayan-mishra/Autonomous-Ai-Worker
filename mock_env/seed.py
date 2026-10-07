@@ -1,5 +1,6 @@
-import sqlite3
 import os
+import sqlite3
+
 
 def seed_vendor_portal():
     os.makedirs("mock_env/vendor_portal", exist_ok=True)

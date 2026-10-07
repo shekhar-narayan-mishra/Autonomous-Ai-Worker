@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
 from agent.verifier import BaseVerifier, CheckResult, VerifierResult
 
 
@@ -61,9 +62,7 @@ class ReportVerifier(BaseVerifier):
                 true_mismatches.append(inv_id)
                 continue
             erp_data = erp_bills[inv_id]
-            if erp_data["amount"] != portal_data["amount"]:
-                true_mismatches.append(inv_id)
-            elif erp_data["due_date"] != portal_data["due_date"]:
+            if erp_data["amount"] != portal_data["amount"] or erp_data["due_date"] != portal_data["due_date"]:
                 true_mismatches.append(inv_id)
 
         evidence["true_mismatches"] = true_mismatches

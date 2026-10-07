@@ -1,7 +1,10 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 from pydantic import BaseModel
+
 from agent.llm import call_groq
+
 
 class DummySchema(BaseModel):
     dummy: str

@@ -1,9 +1,9 @@
+import os
 import subprocess
 import time
-import pytest
+
 from playwright.sync_api import sync_playwright
-import sqlite3
-import os
+
 
 def test_smoke():
     # Seed DBs

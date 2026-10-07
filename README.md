@@ -51,8 +51,8 @@ The system centers around an asynchronous `Agent Loop` that continuously observe
 6. **Task-Keyed Test Responder**: For automated evaluations, the `HumanInterface` supports a pre-configured dictionary of expected clarification questions, ensuring the agent actually asks the *right* question before blindly proceeding.
 
 ## 🛠️ Models, APIs, and Frameworks
-- **LLM Provider**: Groq API (extremely fast inference).
-- **Model**: `openai/gpt-oss-120b` (Default in config. Groq's high-parameter OSS models ensure strong JSON instruction following).
+- **LLM Provider**: Multi-provider free-tier chain (Gemini, Groq, OpenRouter).
+- **Model**: Automatic failover chain (e.g. Gemini Flash, Groq Llama, OpenRouter free models).
 - **Browser Automation**: Playwright (Async API, Chromium).
 - **Backend Server**: FastAPI (with Uvicorn).
 - **Frontend**: Vanilla JavaScript and CSS (No build step, Glassmorphism UI).
@@ -65,8 +65,7 @@ The system centers around an asynchronous `Agent Loop` that continuously observe
 
 ## ⚠️ Known Limitations
 - **Model History & Context Limits**: Because the agent stores full interaction histories, the prompt can grow large over long tasks. While the DOM is truncated, prolonged loops can still exhaust context windows. 
-- **Groq Rate Limits (429s)**: Groq enforces strict Tokens Per Minute (TPM) limits on its free/developer tiers. The agent implements backoff to mitigate this, but heavy chaos runs can trigger rate limits, artificially slowing down execution.
-- **Evaluation Failures (0% Success Rate)**: As seen in the evaluation results below, the agent currently struggles significantly when run sequentially in an automated suite. The average step count is 1-2, indicating the LLM (`openai/gpt-oss-120b`) is failing to build a multi-step plan from the semantic DOM, opting to abort or hallucinate an early `finish` action rather than exploring the UI. Furthermore, the verifier requires precise data entry, which the LLM struggles to parse perfectly from the truncated DOM view. Future iterations require better in-context few-shot examples of DOM navigation.
+- **Rate Limits (429s)**: Free/developer tiers enforce strict rate limits. The agent implements quotas, failovers, and backoff across providers to mitigate this, but heavy runs can still exhaust all providers.
 
 ## 🔮 What I'd Build Next
 1. **Vision Fallback**: Implement a fallback mechanism where if the semantic DOM snapshot fails to capture a complex custom widget, the agent can request a full screenshot and use a Vision API specifically for that step.
@@ -75,20 +74,11 @@ The system centers around an asynchronous `Agent Loop` that continuously observe
 
 ## 📊 Eval Results
 
-| Task ID | Success Rate | Chaos Recovery | Verifier Pass | Avg Steps | Avg Retries | Avg Tokens | Avg Latency (ms) | Unexp Q's | 429s |
-|---------|--------------|----------------|---------------|-----------|-------------|------------|-----------------|-----------|------|
-| base_entry | 0% | 0% | 0% | 2.3 | 0.0 | 0 | 0 | 0 | 0 |
-| different_vendor | 0% | 0% | 0% | 1.0 | 0.0 | 0 | 0 | 0 | 0 |
-| overdue_flag | 0% | 0% | 0% | 1.0 | 0.0 | 0 | 0 | 0 | 0 |
-| reconcile_mismatch | 0% | 0% | 0% | 0.8 | 0.0 | 0 | 0 | 0 | 0 |
-| ambiguous_duplicate | 0% | 0% | 0% | 1.5 | 0.0 | 0 | 0 | 0 | 0 |
-| wrong_vendor | 0% | 0% | 0% | 0.7 | 0.0 | 0 | 0 | 0 | 0 |
-| missing_invoice | 0% | 0% | 0% | 1.2 | 0.0 | 0 | 0 | 0 | 0 |
-| amount_only | 0% | 0% | 0% | 2.0 | 0.0 | 0 | 0 | 0 | 0 |
-| duplicate_detection | 0% | 0% | 0% | 2.0 | 0.0 | 0 | 0 | 0 | 0 |
-| phrased_differently | 0% | 0% | 0% | 0.0 | 0.0 | 0 | 0 | 0 | 0 |
+**Offline Plumbing Results** (ScriptedProvider)
+Validates agent plumbing, reliability metrics, and verifier logic without real LLM calls. See `eval/results.md`.
 
-*(Note: The agent aborted early on all automated runs due to strict validation and LLM instruction-following degradation under heavy prompt load).*
+**Live Results**
+Pending / see `eval/results_live.md`.
 
 ## 📁 Repository Structure
 

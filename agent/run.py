@@ -1,8 +1,10 @@
-import sys
 import asyncio
-from agent.loop import run_loop
-import sqlite3
 import json
+import sqlite3
+import sys
+
+from agent.loop import run_loop
+
 
 async def main():
     if len(sys.argv) < 2:

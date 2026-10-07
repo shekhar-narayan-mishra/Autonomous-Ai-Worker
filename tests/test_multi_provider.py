@@ -1,18 +1,17 @@
-import pytest
-import asyncio
 from unittest.mock import patch
-from pydantic import BaseModel
+
+import pytest
 
 from agent.llm import (
     LLMChainManager,
-    ChainEntry,
-    generate_action,
-    set_chain_manager,
-    reset_run_metrics,
-    get_run_metrics,
     LLMQuotaExhaustedError,
-    LLMResponse
+    LLMResponse,
+    generate_action,
+    get_run_metrics,
+    reset_run_metrics,
+    set_chain_manager,
 )
+
 
 @pytest.mark.asyncio
 async def test_fallback_on_daily_quota(tmp_path):

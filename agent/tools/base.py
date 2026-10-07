@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel
-from typing import Type, Any, Dict, List
 from enum import Enum
+
+from pydantic import BaseModel
+
 
 class RiskLevel(str, Enum):
     READ = "read"
@@ -17,7 +18,7 @@ class ToolResult(BaseModel):
 class BaseTool(ABC):
     name: str
     description: str
-    args_schema: Type[BaseModel]
+    args_schema: type[BaseModel]
     risk_level: RiskLevel
 
     @abstractmethod
@@ -26,7 +27,7 @@ class BaseTool(ABC):
 
 class ToolRegistry:
     def __init__(self):
-        self._tools: Dict[str, BaseTool] = {}
+        self._tools: dict[str, BaseTool] = {}
 
     def register(self, tool: BaseTool):
         self._tools[tool.name] = tool
@@ -34,7 +35,7 @@ class ToolRegistry:
     def get(self, name: str) -> BaseTool:
         return self._tools.get(name)
 
-    def get_all(self) -> List[BaseTool]:
+    def get_all(self) -> list[BaseTool]:
         return list(self._tools.values())
 
     def get_system_prompt_segment(self) -> str:

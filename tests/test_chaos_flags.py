@@ -1,9 +1,9 @@
-import asyncio
-import pytest
-import sqlite3
 import httpx
-from agent.reliability import ReliabilityManager, ErrorClassification
-import mock_env.chaos as chaos
+import pytest
+
+from agent.reliability import ErrorClassification, ReliabilityManager
+from mock_env import chaos
+
 
 @pytest.mark.asyncio
 async def test_chaos_flags_behavior():

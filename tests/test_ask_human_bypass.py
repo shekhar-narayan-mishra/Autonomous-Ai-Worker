@@ -1,8 +1,11 @@
-import pytest
 import os
+
+import pytest
 import yaml
-from agent.loop import run_loop
+
 from agent.llm import LLMResponse
+from agent.loop import run_loop
+
 
 # Mock the generate_action to just return our ask_human call, then a finish call
 class MockLLM:

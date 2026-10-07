@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
-from agent.tools.base import BaseTool, ToolResult, RiskLevel, registry
+
+from agent.tools.base import BaseTool, RiskLevel, ToolResult, registry
+
 
 class MemoryStore:
     def __init__(self):

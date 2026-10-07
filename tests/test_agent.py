@@ -1,9 +1,11 @@
+
 import pytest
-import asyncio
-from agent.tools.base import registry, BaseTool, ToolResult, RiskLevel
-from agent.tools.browser import BrowserTool, BrowserContext
-from agent.loop import run_loop
 from pydantic import BaseModel
+
+from agent.loop import run_loop
+from agent.tools.base import BaseTool, RiskLevel, ToolResult, registry
+from agent.tools.browser import BrowserContext
+
 
 class DummyArgs(BaseModel):
     foo: str

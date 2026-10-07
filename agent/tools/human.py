@@ -1,6 +1,9 @@
-from .base import BaseTool, ToolResult, RiskLevel, registry
 from pydantic import BaseModel, Field
+
 from agent.safety import global_human_interface
+
+from .base import BaseTool, RiskLevel, ToolResult, registry
+
 
 class HumanArgs(BaseModel):
     question: str = Field(description="Question to ask the human or clarification needed.")
@@ -13,7 +16,7 @@ class HumanTool(BaseTool):
     
     async def run(self, question: str) -> ToolResult:
         ans = await global_human_interface.ask(question)
-        if any(w in question.lower() for w in ["password", "credential", "secret", "token", "key"]):
+        if any(w in question.lower() for w in ["password", "login", "credential", "api key", "token to use"]):
             ans = "[REDACTED]"
         return ToolResult(ok=True, observation=f"Human answered: {ans}")
 

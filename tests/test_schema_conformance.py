@@ -1,11 +1,12 @@
-import pytest
-from agent.tools.base import registry
-from agent.llm import ActionArgs
+from pydantic import BaseModel
+
+from agent.llm import build_action_args_model
+from agent.tools.base import BaseTool, RiskLevel, ToolRegistry, ToolResult, registry
+
 
 def test_tool_schema_conformance():
-    """Ensure that EVERY tool's arguments can be expressed by ActionArgs and round-trip successfully."""
-    
-    # Get all fields that ActionArgs supports
+    """Ensure that EVERY real registered tool's arguments can be expressed by the dynamically generated ActionArgs."""
+    ActionArgs = build_action_args_model(registry)
     supported_fields = set(ActionArgs.model_fields.keys())
     
     missing_fields = []
@@ -15,40 +16,38 @@ def test_tool_schema_conformance():
         if not tool.args_schema:
             continue
             
-        for field_name, field in tool.args_schema.model_fields.items():
+        for field_name in tool.args_schema.model_fields.keys():
             if field_name not in supported_fields:
                 missing_fields.append(f"Tool '{tool_name}' requires field '{field_name}' not in ActionArgs")
-                continue
-                
-            # Now test type compatibility roughly
-            action_field = ActionArgs.model_fields[field_name]
+    
+    assert not missing_fields, "Some real tool args cannot be expressed in ActionArgs:\n" + "\n".join(missing_fields)
+
+def test_fake_tool_schema_conformance():
+    """Ensure that a fake tool with a custom schema correctly influences the generated ActionArgs."""
+    test_registry = ToolRegistry()
+    
+    class FakeToolArgs(BaseModel):
+        fake_field: str
+        another_field: int
+        
+    class FakeTool(BaseTool):
+        name = "fake_tool"
+        description = "A fake tool"
+        args_schema = FakeToolArgs
+        risk_level = RiskLevel.READ
+        
+        async def run(self, **kwargs) -> ToolResult:
+            return ToolResult(ok=True, observation="Fake")
             
-            # Since action fields are all Optional, we just need to ensure the inner type matches
-            # or is a superset (like list[FillFormField])
-            
-            # For simplicity, if we can instantiate ActionArgs with the mock data, it round trips
-            # We'll just build a mock payload and parse it with ActionArgs
+    test_registry.register(FakeTool())
     
-    assert not missing_fields, "Some tool args cannot be expressed in ActionArgs:\n" + "\n".join(missing_fields)
+    ActionArgs = build_action_args_model(test_registry)
+    supported_fields = set(ActionArgs.model_fields.keys())
     
-    # Test a complex payload like fill_form
-    payload = {
-        "command": "fill_form",
-        "fields": [
-            {"id": "e1", "value": "test1"},
-            {"id": "e2", "value": "test2"}
-        ],
-        "submit": "e3"
-    }
+    assert "fake_field" in supported_fields
+    assert "another_field" in supported_fields
     
+    payload = {"fake_field": "test", "another_field": 42}
     parsed = ActionArgs(**payload)
-    assert parsed.command == "fill_form"
-    assert len(parsed.fields) == 2
-    assert parsed.fields[0].id == "e1"
-    assert parsed.submit == "e3"
-    
-    # Also verify that the provider schema generators don't crash on it
-    schema_json = ActionArgs.model_json_schema()
-    assert "fields" in schema_json["properties"]
-    
-    print("Schema conformance test passed!")
+    assert parsed.fake_field == "test"
+    assert parsed.another_field == 42

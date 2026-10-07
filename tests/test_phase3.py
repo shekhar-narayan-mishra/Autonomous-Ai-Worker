@@ -1,10 +1,13 @@
+import os
+import sqlite3
+
 import pytest
+
 from agent.memory import MemoryStore
-from agent.reliability import ReliabilityManager, ErrorClassification
+from agent.reliability import ErrorClassification, ReliabilityManager
 from agent.safety import global_human_interface
 from verifiers.invoice_entry import InvoiceEntryVerifier
-import sqlite3
-import os
+
 
 def test_memory():
     m = MemoryStore()

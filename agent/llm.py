@@ -1,14 +1,15 @@
+import asyncio
+import json
+import logging
 import os
+import random
 import re
 import time
-import json
-import asyncio
-import logging
-import random
 from abc import ABC, abstractmethod
-from typing import Any, Type
-from datetime import datetime, timezone, timedelta
-from pydantic import BaseModel, ValidationError, Field
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from pydantic import BaseModel, Field, ValidationError
 
 import config
 
@@ -18,36 +19,27 @@ class FillFormField(BaseModel):
     id: str = Field(description="The e12 ID of the field to type into")
     value: str = Field(description="The text to type")
 
-class ActionArgs(BaseModel):
-    command: str | None = None
-    url: str | None = None
-    selector_id: str | None = None
-    text: str | None = None
-    key: str | None = None
-    summary: str | None = None
-    key_name: str | None = None
-    value: str | None = None
-    question: str | None = None
-    action_name: str | None = None
-    method: str | None = None
-    headers: str | None = None
-    body: str | None = None
-    file_path: str | None = None
-    invoice_id: str | None = None
-    vendor: str | None = None
-    due_date: str | None = None
-    amount: str | None = None
-    notes: str | None = None
-    fields: list[FillFormField] | None = None
-    submit: str | None = None
-    path: str | None = None
-    foo: str | None = None
+from pydantic import create_model
 
-class GeminiResponseSchema(BaseModel):
-    thought: str
-    action: str
-    args: ActionArgs
-    expected_outcome: str
+from agent.tools.base import ToolRegistry, registry
+
+
+def build_action_args_model(tool_registry: ToolRegistry = registry) -> type[BaseModel]:
+    fields = {}
+    for tool in tool_registry.get_all():
+        if tool.args_schema:
+            for fname, f in tool.args_schema.model_fields.items():
+                fields[fname] = (f.annotation | None, None)
+    return create_model('ActionArgs', **fields)
+
+def get_gemini_response_schema(tool_registry: ToolRegistry = registry) -> type[BaseModel]:
+    ActionArgsDynamic = build_action_args_model(tool_registry)
+    return create_model('GeminiResponseSchema',
+        thought=(str, ...),
+        action=(str, ...),
+        args=(ActionArgsDynamic, ...),
+        expected_outcome=(str, ...)
+    )
 
 class LLMResponse(BaseModel):
     thought: str
@@ -57,7 +49,6 @@ class LLMResponse(BaseModel):
 
 class LLMQuotaExhaustedError(RuntimeError):
     """Raised when all configured LLM chain entries have exhausted their quotas."""
-    pass
 
 # Run Metrics
 class RunMetrics:
@@ -359,7 +350,7 @@ class ChainEntry:
         self.last_call_timestamp = time.time()
 
 # Provider Adapters
-async def call_gemini(model: str, messages: list[dict], schema: Type[BaseModel]) -> tuple[BaseModel, dict]:
+async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[BaseModel, dict]:
     from google import genai
     from google.genai import types
 
@@ -376,6 +367,8 @@ async def call_gemini(model: str, messages: list[dict], schema: Type[BaseModel])
         else:
             contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
 
+    GeminiResponseSchema = get_gemini_response_schema()
+    
     gen_config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=GeminiResponseSchema,
@@ -409,7 +402,7 @@ async def call_gemini(model: str, messages: list[dict], schema: Type[BaseModel])
         "model": model
     }
 
-async def call_groq(model: str, messages: list[dict], schema: Type[BaseModel]) -> tuple[BaseModel, dict]:
+async def call_groq(model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[BaseModel, dict]:
     from groq import AsyncGroq
     client = AsyncGroq(api_key=config.GROQ_API_KEY)
 
@@ -456,7 +449,7 @@ async def call_groq(model: str, messages: list[dict], schema: Type[BaseModel]) -
         "model": model
     }
 
-async def call_openrouter(model: str, messages: list[dict], schema: Type[BaseModel]) -> tuple[BaseModel, dict]:
+async def call_openrouter(model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[BaseModel, dict]:
     import httpx
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
@@ -575,7 +568,7 @@ class LLMProvider(ABC):
         self.last_call_timestamp = time.time()
 
     @abstractmethod
-    async def generate_action(self, messages: list[dict], schema: Type[BaseModel] = LLMResponse) -> tuple[BaseModel, dict]:
+    async def generate_action(self, messages: list[dict], schema: type[BaseModel] = LLMResponse) -> tuple[BaseModel, dict]:
         pass
 
 # Main Action Generation Entrypoint
@@ -583,7 +576,7 @@ async def generate_action(
     system_prompt_or_messages: str | list[dict],
     history: list[dict] = None,
     max_retries: int = 1,
-    schema: Type[BaseModel] = LLMResponse
+    schema: type[BaseModel] = LLMResponse
 ) -> tuple[LLMResponse, dict]:
     """
     Main entry point for generating structured actions across the LLM chain.

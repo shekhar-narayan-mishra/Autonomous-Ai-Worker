@@ -1,7 +1,10 @@
 import asyncio
+
 from playwright.async_api import Page
-from .base import BaseTool, ToolResult, RiskLevel, registry
 from pydantic import BaseModel, Field
+
+from .base import BaseTool, RiskLevel, ToolResult, registry
+
 
 class BrowserContext:
     page: Page | None = None

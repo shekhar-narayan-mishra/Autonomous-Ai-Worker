@@ -1,18 +1,18 @@
 import asyncio
 import os
-import json
-from agent.tools.base import registry, RiskLevel
-from agent.tools import browser, files, http_api, finish, human
-from agent.llm import generate_action
-from agent.trace import TraceLogger
-from agent.memory import MemoryStore, save_fact_tool, recall_tool
-from agent.reliability import ReliabilityManager, ErrorClassification
-from agent.safety import global_human_interface
-from agent.verifier import get_verifier
-from playwright.async_api import async_playwright
 
 import yaml
-from agent.events import current_event_bus, EventBus
+from playwright.async_api import async_playwright
+
+from agent.events import EventBus, current_event_bus
+from agent.llm import generate_action
+from agent.memory import MemoryStore, recall_tool, save_fact_tool
+from agent.reliability import ErrorClassification, ReliabilityManager
+from agent.safety import global_human_interface
+from agent.tools import browser
+from agent.tools.base import RiskLevel, registry
+from agent.trace import TraceLogger
+from agent.verifier import get_verifier
 
 SYSTEM_PROMPT = """Autonomous AI. Output ONLY JSON:
 {"thought": "...", "action": "...", "args": {...}, "expected_outcome": "..."}

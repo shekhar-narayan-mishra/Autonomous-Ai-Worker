@@ -1,6 +1,8 @@
 import httpx
-from .base import BaseTool, ToolResult, RiskLevel, registry
 from pydantic import BaseModel, Field
+
+from .base import BaseTool, RiskLevel, ToolResult, registry
+
 
 class HttpArgs(BaseModel):
     method: str = Field(description="GET or POST")

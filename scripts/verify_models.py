@@ -1,5 +1,5 @@
+
 import config
-import os
 
 with open("docs/free_models.txt") as f:
     free_models = {line.strip() for line in f if line.strip()}

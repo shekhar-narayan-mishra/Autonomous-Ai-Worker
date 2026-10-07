@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Request, Form, HTTPException, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
-import sqlite3
-import time
 import os
+import sqlite3
 import sys
+import time
+
+from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import chaos

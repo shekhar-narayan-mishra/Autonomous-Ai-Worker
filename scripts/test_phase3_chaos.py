@@ -1,7 +1,8 @@
+import json
+import os
 import subprocess
 import time
-import os
-import json
+
 
 def test_chaos():
     os.environ["EVAL_MODE"] = "1"

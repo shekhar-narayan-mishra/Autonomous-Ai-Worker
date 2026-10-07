@@ -10,6 +10,7 @@ Verifies that:
 """
 
 import sqlite3
+
 from agent.verifier import BaseVerifier, CheckResult, VerifierResult
 
 

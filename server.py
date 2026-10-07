@@ -1,16 +1,17 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import asyncio
 import json
-import uuid
 import os
-import yaml
+import uuid
 
+import yaml
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from agent.events import EventBus
 from agent.loop import run_loop
-from agent.events import EventBus, current_event_bus
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

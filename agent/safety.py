@@ -1,7 +1,9 @@
-import os
 import json
+import os
 import sys
+
 from agent.events import current_event_bus
+
 
 class HumanInterface:
     def __init__(self):

@@ -1,11 +1,12 @@
 import asyncio
 import os
 import sqlite3
-from agent.loop import run_loop, SYSTEM_PROMPT
-from agent.llm import LLMResponse
-import mock_env.chaos as chaos
 from unittest.mock import patch
-from agent.verifier import get_verifier
+
+from agent.llm import LLMResponse
+from agent.loop import run_loop
+from mock_env import chaos
+
 
 # PLUMBING TEST, NOT AN AGENT EVAL
 class ScriptedProvider:

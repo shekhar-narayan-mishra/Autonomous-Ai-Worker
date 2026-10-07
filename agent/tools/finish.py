@@ -1,5 +1,7 @@
-from .base import BaseTool, ToolResult, RiskLevel, registry
 from pydantic import BaseModel, Field
+
+from .base import BaseTool, RiskLevel, ToolResult, registry
+
 
 class FinishArgs(BaseModel):
     summary: str = Field(description="Summary of task completion")

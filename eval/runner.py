@@ -22,7 +22,6 @@ import subprocess
 import sys
 import time
 from statistics import mean
-from typing import Optional
 from unittest.mock import patch
 
 # ---------------------------------------------------------------------------
@@ -262,7 +261,7 @@ def _seed_dbs() -> None:
     subprocess.run([sys.executable, "mock_env/seed.py"], check=True, capture_output=True)
 
 
-def _set_chaos(flag: Optional[str]) -> None:
+def _set_chaos(flag: str | None) -> None:
     if flag:
         with open("chaos_state.json", "w") as f:
             json.dump({flag: True}, f)
@@ -271,13 +270,11 @@ def _set_chaos(flag: Optional[str]) -> None:
             os.remove("chaos_state.json")
 
 
-def _run_offline_task(task: dict, chaos_flag: Optional[str]) -> dict:
+def _run_offline_task(task: dict, chaos_flag: str | None) -> dict:
     """Run a single task offline using ScriptedProvider. Returns a result dict."""
     import asyncio
-    from unittest.mock import patch
-    from agent.llm import LLMResponse, reset_run_metrics, get_run_metrics
-    from agent.loop import run_loop
-    from agent.verifier import get_verifier
+
+    from agent.llm import LLMResponse, get_run_metrics, reset_run_metrics
 
     task_id = task["id"]
     seq = _make_offline_sequence(task_id)
@@ -396,7 +393,7 @@ async def _patch_and_run(loop_module, fake_generate, task_str, task_args):
 # Live evaluation
 # ---------------------------------------------------------------------------
 
-def _run_live_task(task: dict, chaos_flag: Optional[str]) -> dict:
+def _run_live_task(task: dict, chaos_flag: str | None) -> dict:
     """Run a single task via real LLM inference (subprocess)."""
     task_args = {k: v for k, v in task.items()
                  if k in ("verifier", "vendor_name", "ignore_due_date", "expected_notes",
@@ -621,7 +618,7 @@ def main() -> int:
             time.sleep(2)
 
         results = []
-        chaos_flags: list[Optional[str]] = [None]
+        chaos_flags: list[str | None] = [None]
         if args.chaos:
             chaos_flags = [args.chaos]
         elif args.all_chaos and args.mode == "offline":
