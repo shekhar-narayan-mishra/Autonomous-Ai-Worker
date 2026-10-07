@@ -512,9 +512,16 @@
                     <span class="step-badge" style="background:var(--surface-hover); margin-left:0.5rem;">${data.action}</span>
                     ${retry}
                 </div>
-                <div>
-                    <span style="font-size:0.8rem;color:var(--text-muted);" title="LLM Inference: ${data.latency_ms}ms, Tool: ${data.tool_ms || 0}ms">${data.latency_ms}ms</span>
-                    ${waitNote}
+                <div style="text-align: right;">
+                    <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom: 2px;">
+                        ${data.provider || 'unknown'}/${data.model || 'unknown'}
+                    </div>
+                    <div>
+                        <span style="font-size:0.75rem;color:var(--text-muted);" title="LLM Inference: ${data.latency_ms}ms, Wait: ${data.wait_ms || 0}ms, Tool: ${data.tool_ms || 0}ms">
+                            inf:${data.latency_ms}ms | wait:${data.wait_ms || 0}ms | tool:${data.tool_ms || 0}ms
+                        </span>
+                        ${waitNote}
+                    </div>
                 </div>
             </div>
             <div class="step-thought">${data.thought}</div>

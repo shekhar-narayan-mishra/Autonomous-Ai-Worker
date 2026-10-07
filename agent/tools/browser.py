@@ -59,8 +59,9 @@ class FillFormField(BaseModel):
     value: str = Field(description="The text to type")
 
 class BrowserArgs(BaseModel):
-    command: str = Field(description="goto, click, type, select, press, wait, snapshot, extract_text, fill_form")
+    command: str = Field(description="goto, click, type, select, press, wait, snapshot, extract_text, fill_form, login")
     url: str | None = Field(None, description="URL for goto")
+    app: str | None = Field(None, description="App name for login")
     selector_id: str | None = Field(None, description="The e12 ID of the element to interact with")
     text: str | None = Field(None, description="Text to type or select")
     key: str | None = Field(None, description="Key to press (e.g. Enter)")
@@ -73,7 +74,7 @@ class BrowserTool(BaseTool):
     args_schema = BrowserArgs
     risk_level = RiskLevel.READ
 
-    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None, fields: list[dict] = None, submit: str = None) -> ToolResult:
+    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None, fields: list[dict] = None, submit: str = None, app: str = None) -> ToolResult:
         page = BrowserContext.page
         if not page and command != 'goto':
             return ToolResult(ok=False, observation="Browser not initialized. Use goto first.")
@@ -116,6 +117,30 @@ class BrowserTool(BaseTool):
                 pass
             elif command == "extract_text":
                 return ToolResult(ok=True, observation=(await page.evaluate("document.body.innerText"))[:2000])
+            elif command == "login":
+                import yaml
+                with open("config/environment.yaml") as f:
+                    env_dict = yaml.safe_load(f)
+                creds = None
+                for a in env_dict.get("apps", []):
+                    if a.get("name").lower() == (app or "").lower():
+                        creds = a.get("credentials")
+                        break
+                if not creds:
+                    return ToolResult(ok=False, observation=f"No credentials found for app {app}")
+                
+                await page.locator("input[type='text'], input[type='email'], input:not([type])").first.fill(creds.get("username", ""))
+                await page.locator("input[type='password']").first.fill(creds.get("password", ""))
+                await page.locator("button[type='submit'], input[type='submit'], button").first.click()
+                await page.wait_for_load_state("networkidle")
+                await asyncio.sleep(2)
+                err_text = await page.evaluate("""() => {
+                    const el = document.querySelector('.error, .alert, [role="alert"], [data-error]');
+                    return el ? el.innerText : '';
+                }""")
+                if err_text:
+                    return ToolResult(ok=False, observation=f"Login failed for {app}: {err_text}. Retry with browser login app={app}")
+                return ToolResult(ok=True, observation=f"Logged in. Resulting URL: {page.url}")
             else:
                 return ToolResult(ok=False, observation=f"Unknown command: {command}")
             

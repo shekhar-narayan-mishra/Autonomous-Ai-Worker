@@ -38,6 +38,6 @@ class ReliabilityManager:
             if "waiting for selector" in err_str or "waiting for locator" in err_str:
                 return ErrorClassification.WRONG_APPROACH
             return ErrorClassification.TRANSIENT
-        if any(x in err_str for x in ["not found", "invalid", "unsupported", "waiting for selector", "waiting for locator", "attached to the dom", "re-read available environment"]):
+        if any(x in err_str for x in ["not found", "invalid", "unsupported", "waiting for selector", "waiting for locator", "attached to the dom", "re-read available environment", "login failed"]):
             return ErrorClassification.WRONG_APPROACH
         return ErrorClassification.BLOCKED

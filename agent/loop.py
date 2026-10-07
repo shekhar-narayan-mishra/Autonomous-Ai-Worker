@@ -29,6 +29,7 @@ Rules:
 - Ask human ONLY if ambiguous, critical info missing, or blocked.
 - Do NOT finish until task is submitted in ERP or confirmed missing.
 - Every value you enter must come from an observation of the source the task names. Never infer completion from the destination system alone. In finish, cite the observation (URL/step) behind each requirement.
+- To sign in to an app, use browser login with the app name.
 
 Example:
 {"thought": "Extracting total", "action": "save_fact", "args": {"key": "invoice_total", "value": "100.00"}, "expected_outcome": "saved"}
@@ -62,6 +63,8 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
     async with async_playwright() as p:
         b = await p.chromium.launch(headless=True)
         ctx = await b.new_context()
+        ctx.set_default_timeout(10000)
+        ctx.set_default_navigation_timeout(15000)
         page = await ctx.new_page()
         browser.BrowserContext.page = page
         
@@ -87,11 +90,10 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     url = app.get('base_url', '')
                     purpose = app.get('purpose', '')
                     creds = app.get('credentials', {})
-                    cred_str = " ".join([f"{k}={v}" for k, v in creds.items()])
                     
                     app_line = f"{name} ({url})"
-                    if cred_str:
-                        app_line += f" login: {cred_str}"
+                    if creds:
+                        app_line += " login: credentials: available via login"
                     if purpose:
                         app_line += f" purpose: {purpose}"
                     
@@ -165,9 +167,13 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                         result_obs = "Execution denied by human."
                         ok = False
                     else:
-                        res = await tool.run(**action.args)
-                        result_obs = res.observation
-                        ok = res.ok
+                        try:
+                            res = await asyncio.wait_for(tool.run(**action.args), timeout=20.0)
+                            result_obs = res.observation
+                            ok = res.ok
+                        except asyncio.TimeoutError:
+                            result_obs = f"Timeout: tool '{action.action}' exceeded 20s limit."
+                            ok = False
                 else:
                     bypassed = False
                     if action.action == "ask_human":
@@ -181,7 +187,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                                     break
                     if not bypassed:
                         try:
-                            res = await tool.run(**action.args)
+                            res = await asyncio.wait_for(tool.run(**action.args), timeout=20.0)
                             result_obs = res.observation
                             ok = res.ok
                             
@@ -191,6 +197,9 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                                 if "error" in lower_obs or "invalid" in lower_obs or "incorrect" in lower_obs or "fail" in lower_obs:
                                     raise Exception(f"Action failed to produce expected outcome. Page shows an error. Re-read Available environment for this app's credentials before retrying. Observation: {result_obs}")
                                     
+                        except asyncio.TimeoutError:
+                            result_obs = f"Timeout: tool '{action.action}' exceeded 20s limit."
+                            ok = False
                         except Exception as e:
                             err_class = rm.classify_error(e)
                             if err_class == ErrorClassification.TRANSIENT:
@@ -198,9 +207,12 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                                 print("Transient error detected. Retrying...")
                                 await asyncio.sleep(2)
                                 try:
-                                    res = await tool.run(**action.args)
+                                    res = await asyncio.wait_for(tool.run(**action.args), timeout=20.0)
                                     result_obs = res.observation
                                     ok = res.ok
+                                except asyncio.TimeoutError:
+                                    result_obs = f"Timeout: tool '{action.action}' exceeded 20s limit."
+                                    ok = False
                                 except Exception as e2:
                                     result_obs = f"Transient error persisted: {e2}"
                                     ok = False
@@ -285,25 +297,44 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             else:
                 shot_path = None
                 
+            import copy
+            trace_args = copy.deepcopy(action.args)
+            if trace_args:
+                for k, v in trace_args.items():
+                    if isinstance(k, str) and isinstance(v, str) and ("password" in k.lower() or "pwd" in k.lower() or "secret" in k.lower()):
+                        trace_args[k] = "***REDACTED***"
+                if action.action == "browser":
+                    if trace_args.get("command") == "type" and isinstance(trace_args.get("selector_id"), str):
+                        if "password" in trace_args["selector_id"].lower() or "pwd" in trace_args["selector_id"].lower():
+                            trace_args["text"] = "***REDACTED***"
+                    if trace_args.get("command") == "fill_form" and isinstance(trace_args.get("fields"), list):
+                        for f in trace_args["fields"]:
+                            if isinstance(f, dict):
+                                fid = str(f.get("id", "")).lower()
+                                if "password" in fid or "pwd" in fid or "secret" in fid:
+                                    f["value"] = "***REDACTED***"
+
             memory.history.append({
                 "step": step,
                 "action": action.action,
-                "args": action.args,
+                "args": trace_args,
                 "observation_summary": result_obs
             })
             
-            trace.log_step(step, action.thought, action.action, action.args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], metadata.get("wait_ms", 0), tool_ms, shot_path, metadata.get("attempts", []))
+            trace.log_step(step, action.thought, action.action, trace_args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], metadata.get("wait_ms", 0), tool_ms, shot_path, metadata.get("attempts", []))
             
             if event_bus:
                 await event_bus.emit("step", {
                     "step": step,
                     "thought": action.thought,
                     "action": action.action,
-                    "args": action.args,
+                    "args": trace_args,
                     "observation": result_obs,
                     "latency_ms": metadata["latency_ms"],
                     "wait_ms": metadata.get("wait_ms", 0),
                     "tool_ms": tool_ms,
+                    "provider": metadata.get("provider", "unknown"),
+                    "model": metadata.get("model", "unknown"),
                     "screenshot_url": f"/{shot_path}" if shot_path else None,
                     "retry_reason": retry_reason
                 })
