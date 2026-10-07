@@ -49,28 +49,28 @@ def reset_db():
 # 2. Base run opening INV detail page
 base_sequence = [
     {"thought": "go to portal", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8001"}, "expected_outcome": "portal loads"},
-    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "admin", "e2": "password123"}, "submit": "e3"}, "expected_outcome": "dashboard loads"},
+    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "password123"}], "submit": "e3"}, "expected_outcome": "dashboard loads"},
     {"thought": "view invoices", "action": "browser", "args": {"command": "extract_text"}, "expected_outcome": "invoices visible"},
     {"thought": "click view INV-101", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8001/invoice/INV-101"}, "expected_outcome": "invoice details"},
     {"thought": "extract detail", "action": "browser", "args": {"command": "extract_text"}, "expected_outcome": "got details"},
     {"thought": "save amount and due date", "action": "save_fact", "args": {"key": "inv_101", "value": "Amount: 1250.50, Due: 2023-12-15"}, "expected_outcome": "fact saved"},
     {"thought": "go to erp", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8002"}, "expected_outcome": "erp loads"},
-    {"thought": "login erp", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "admin", "e2": "admin"}, "submit": "e3"}, "expected_outcome": "erp dashboard"},
+    {"thought": "login erp", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "admin"}], "submit": "e3"}, "expected_outcome": "erp dashboard"},
     {"thought": "click add bill", "action": "browser", "args": {"command": "click", "selector_id": "e1"}, "expected_outcome": "add bill form"},
-    {"thought": "enter invoice", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "INV-101", "e2": "Acme Corp", "e3": "1250.50", "e4": "2023-12-15", "e5": ""}, "submit": "e6"}, "expected_outcome": "submitted"},
+    {"thought": "enter invoice", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "INV-101"}, {"id": "e2", "value": "Acme Corp"}, {"id": "e3", "value": "1250.50"}, {"id": "e4", "value": "2023-12-15"}, {"id": "e5", "value": ""}], "submit": "e6"}, "expected_outcome": "submitted"},
     {"thought": "finish task", "action": "finish", "args": {"summary": "Entered invoice"}, "expected_outcome": "task complete"}
 ]
 
 # a) Wrong amount entered -> verifier FAILS -> feedback -> repair -> passes
 wrong_amount_sequence = [
     {"thought": "go to erp", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8002"}, "expected_outcome": "erp loads"},
-    {"thought": "login erp", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "admin", "e2": "admin"}, "submit": "e3"}, "expected_outcome": "erp dashboard"},
+    {"thought": "login erp", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "admin"}], "submit": "e3"}, "expected_outcome": "erp dashboard"},
     {"thought": "click add bill", "action": "browser", "args": {"command": "click", "selector_id": "e1"}, "expected_outcome": "add bill form"},
-    {"thought": "enter WRONG amount", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "INV-101", "e2": "Acme Corp", "e3": "9999.99", "e4": "2023-12-15", "e5": ""}, "submit": "e6"}, "expected_outcome": "submitted"},
+    {"thought": "enter WRONG amount", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "INV-101"}, {"id": "e2", "value": "Acme Corp"}, {"id": "e3", "value": "9999.99"}, {"id": "e4", "value": "2023-12-15"}, {"id": "e5", "value": ""}], "submit": "e6"}, "expected_outcome": "submitted"},
     {"thought": "finish task", "action": "finish", "args": {"summary": "Entered invoice"}, "expected_outcome": "task complete"},
     # Verifier fails, feeds back. Repair:
     {"thought": "fix amount", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8002/add_bill"}, "expected_outcome": "add bill form"},
-    {"thought": "re-enter CORRECT amount", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "INV-101", "e2": "Acme Corp", "e3": "1250.50", "e4": "2023-12-15", "e5": ""}, "submit": "e6"}, "expected_outcome": "submitted"},
+    {"thought": "re-enter CORRECT amount", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "INV-101"}, {"id": "e2", "value": "Acme Corp"}, {"id": "e3", "value": "1250.50"}, {"id": "e4", "value": "2023-12-15"}, {"id": "e5", "value": ""}], "submit": "e6"}, "expected_outcome": "submitted"},
     {"thought": "finish task", "action": "finish", "args": {"summary": "Fixed invoice"}, "expected_outcome": "task complete"}
 ]
 
@@ -82,7 +82,7 @@ premature_finish_sequence = [
 # c) Not-found vendor -> finish reporting not found -> verifier passes
 not_found_sequence = [
     {"thought": "go to portal", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8001"}, "expected_outcome": "portal loads"},
-    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "admin", "e2": "password123"}, "submit": "e3"}, "expected_outcome": "dashboard loads"},
+    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "password123"}], "submit": "e3"}, "expected_outcome": "dashboard loads"},
     {"thought": "extract text", "action": "browser", "args": {"command": "extract_text"}, "expected_outcome": "no unknown vendor found"},
     {"thought": "finish not found", "action": "finish", "args": {"summary": "not found"}, "expected_outcome": "missing"}
 ]
@@ -90,7 +90,7 @@ not_found_sequence = [
 # d) Duplicate/ambiguity -> ask_human triggered -> answer passed back
 ambiguity_sequence = [
     {"thought": "go to portal", "action": "browser", "args": {"command": "goto", "url": "http://localhost:8001"}, "expected_outcome": "portal loads"},
-    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": {"e1": "admin", "e2": "password123"}, "submit": "e3"}, "expected_outcome": "dashboard loads"},
+    {"thought": "login", "action": "browser", "args": {"command": "fill_form", "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "password123"}], "submit": "e3"}, "expected_outcome": "dashboard loads"},
     {"thought": "extract text", "action": "browser", "args": {"command": "extract_text"}, "expected_outcome": "two globex invoices"},
     {"thought": "ask human", "action": "ask_human", "args": {"question": "Which Globex invoice?"}, "expected_outcome": "INV-AMB-1"},
     {"thought": "finish after answer", "action": "finish", "args": {"summary": "Got answer"}, "expected_outcome": "task complete"}

@@ -37,7 +37,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
     if event_bus:
         current_event_bus.set(event_bus)
         
-    os.makedirs("screenshots", exist_ok=True)
+    os.makedirs("runs", exist_ok=True)
     if os.path.exists("trace.jsonl"):
         os.remove("trace.jsonl")
     
@@ -96,7 +96,9 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             
             prompt = sys_segment + f"\n\n{mem_segment}"
             
+            retry_reason = None
             if rm.detect_loop():
+                retry_reason = "Loop detected: forced replan"
                 history.append({"role": "user", "content": "You are repeating the same action. Change your strategy or ask_human."})
             
             recent_history = history[-8:] if len(history) > 8 else history
@@ -143,28 +145,44 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                         result_obs = res.observation
                         ok = res.ok
                 else:
-                    try:
-                        res = await tool.run(**action.args)
-                        result_obs = res.observation
-                        ok = res.ok
-                    except Exception as e:
-                        err_class = rm.classify_error(e)
-                        if err_class == ErrorClassification.TRANSIENT:
-                            print("Transient error detected. Retrying...")
-                            await asyncio.sleep(2)
-                            try:
-                                res = await tool.run(**action.args)
-                                result_obs = res.observation
-                                ok = res.ok
-                            except Exception as e2:
-                                result_obs = f"Transient error persisted: {e2}"
+                    bypassed = False
+                    if action.action == "ask_human":
+                        q = action.args.get("question", "").lower()
+                        if any(w in q for w in ["credential", "password", "username", "login", "url"]):
+                            for app in env_dict.get("apps", []):
+                                if app.get("name", "").lower() in q or app.get("base_url", "").lower() in q:
+                                    result_obs = f"Credentials are in Available environment: {app['name']}"
+                                    ok = True
+                                    bypassed = True
+                                    break
+                    if not bypassed:
+                        try:
+                            res = await tool.run(**action.args)
+                            result_obs = res.observation
+                            ok = res.ok
+                        except Exception as e:
+                            err_class = rm.classify_error(e)
+                            if err_class == ErrorClassification.TRANSIENT:
+                                retry_reason = "Transient error detected. Retrying..."
+                                print("Transient error detected. Retrying...")
+                                await asyncio.sleep(2)
+                                try:
+                                    res = await tool.run(**action.args)
+                                    result_obs = res.observation
+                                    ok = res.ok
+                                except Exception as e2:
+                                    result_obs = f"Transient error persisted: {e2}"
+                                    ok = False
+                            else:
+                                result_obs = str(e)
                                 ok = False
-                        else:
-                            result_obs = str(e)
-                            ok = False
             
-            shot_name = f"{run_id}_step_{step}.png" if run_id else f"step_{step}.png"
-            shot_path = f"screenshots/{shot_name}"
+            if run_id:
+                shot_dir = f"runs/{run_id}"
+            else:
+                shot_dir = "runs/default"
+            os.makedirs(shot_dir, exist_ok=True)
+            shot_path = f"{shot_dir}/step_{step}.png"
             if browser.BrowserContext.page:
                 try:
                     await browser.BrowserContext.page.screenshot(path=shot_path)
@@ -190,7 +208,8 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     "args": action.args,
                     "observation": result_obs,
                     "latency_ms": metadata["latency_ms"],
-                    "screenshot_url": f"/screenshots/{shot_name}" if shot_path else None
+                    "screenshot_url": f"/{shot_path}" if shot_path else None,
+                    "retry_reason": retry_reason
                 })
 
             print(f"\nStep {step}: {action.action}({action.args})")
@@ -200,32 +219,64 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             history.append({"role": "user", "content": f"Tool execution {'succeeded' if ok else 'failed'}. Observation:\n{result_obs}"})
             
             if action.action == "finish":
-                v_res_dict = None
-                if task_args and "verifier" in task_args:
-                    verifier = get_verifier(task_args["verifier"])
-                    if verifier:
-                        print("\n[VERIFIER] Running verifier...")
-                        v_res = verifier.verify(task_args)
-                        v_res_dict = v_res.model_dump()
-                        if event_bus:
-                            await event_bus.emit("verifier_result", v_res_dict)
-                        print(f"[VERIFIER] result: {v_res.model_dump_json(indent=2)}")
-                        if not v_res.passed and not repair_attempted:
-                            print("[VERIFIER] Verifier failed. Feeding back for repair...")
-                            repair_attempted = True
-                            history.append({"role": "user", "content": f"VERIFICATION FAILED: {v_res.model_dump_json()}\nPlease fix the issue and call finish again."})
-                            step += 1
-                            continue
-                        elif not v_res.passed and repair_attempted:
-                            print("[VERIFIER] Verifier failed again. Aborting.")
-                            return v_res_dict
-                        else:
-                            print("[VERIFIER] Verifier passed!")
-                            return v_res_dict
-                print("Task finished by agent.")
-                return v_res_dict
+                # ---------------------------------------------------------- #
+                # Finish state machine:
+                # finish → verifier → PASS → SUCCESS
+                #                   → FAIL → one repair attempt → verifier again
+                #                           → PASS → SUCCESS_AFTER_REPAIR
+                #                           → FAIL → FAILED_VERIFICATION
+                # Missing verifier name when one is required → VERIFICATION_ERROR
+                # ---------------------------------------------------------- #
+                verifier_name = task_args.get("verifier") if task_args else None
+                
+                if not verifier_name:
+                    # No verifier configured — agent self-declares, we allow it
+                    print("\n[FINISH] No verifier configured. Agent-declared completion.")
+                    return {"passed": None, "status": "NO_VERIFIER", "checks": [], "evidence": {}}
+                
+                verifier = get_verifier(verifier_name)
+                if verifier is None:
+                    # Verifier name was specified but unknown — this is a config error
+                    msg = f"VERIFICATION_ERROR: verifier '{verifier_name}' is not registered."
+                    print(f"\n[VERIFIER] {msg}")
+                    err_dict = {"passed": False, "status": "VERIFICATION_ERROR",
+                                "checks": [{"name": "Verifier found", "passed": False, "details": msg}],
+                                "evidence": {}}
+                    if event_bus:
+                        await event_bus.emit("verifier_result", err_dict)
+                    return err_dict
+                
+                print("\n[VERIFIER] Running independent verification...")
+                v_res = verifier.verify(task_args)
+                v_res_dict = v_res.model_dump()
+                v_res_dict["status"] = "SUCCESS" if v_res.passed else "FAILED_VERIFICATION"
+                
+                if event_bus:
+                    await event_bus.emit("verifier_result", v_res_dict)
+                print(f"[VERIFIER] result: {v_res.model_dump_json(indent=2)}")
+                
+                if not v_res.passed and not repair_attempted:
+                    print("[VERIFIER] Verification failed. Giving agent one repair attempt...")
+                    repair_attempted = True
+                    history.append({"role": "user", "content": (
+                        f"VERIFICATION FAILED. The verifier found issues:\n"
+                        f"{v_res.model_dump_json()}\n"
+                        f"Please fix the issue(s) listed above and call finish again."
+                    )})
+                    step += 1
+                    continue
+                elif not v_res.passed and repair_attempted:
+                    print("[VERIFIER] Verification failed after repair attempt. Status: FAILED_VERIFICATION")
+                    v_res_dict["status"] = "FAILED_VERIFICATION"
+                    return v_res_dict
+                else:
+                    status = "SUCCESS_AFTER_REPAIR" if repair_attempted else "SUCCESS"
+                    print(f"[VERIFIER] Verification passed! Status: {status}")
+                    v_res_dict["status"] = status
+                    return v_res_dict
                 
             step += 1
             
         await b.close()
-        return None
+        return {"passed": False, "status": "MAX_STEPS_REACHED", "checks": [], "evidence": {}}
+

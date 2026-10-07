@@ -10,6 +10,7 @@ def seed_vendor_portal():
     invoices = [
         ("INV-100", 500.00, "2024-11-01", "Acme Corp", "unpaid"),
         ("INV-101", 1200.50, "2024-11-15", "Acme Corp", "unpaid"),
+        ("INV-200", 850.00, "2024-11-20", "TechFlow", "unpaid"),
         ("INV-AMB-1", 300.00, "2024-12-01", "Globex", "unpaid"),
         ("INV-AMB-2", 300.00, "2024-12-01", "Globex", "unpaid"),
     ]

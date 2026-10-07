@@ -447,7 +447,7 @@
 
     function addStep(data) {
         const tl = document.getElementById('timeline');
-        const retry = tl.innerHTML.includes(data.action) ? '<span class="step-badge retry-badge">Retry</span>' : '';
+        const retry = data.retry_reason ? `<span class="step-badge retry-badge" title="${data.retry_reason}">Retry</span>` : '';
         const card = document.createElement('div');
         card.className = 'step-card';
         card.innerHTML = `

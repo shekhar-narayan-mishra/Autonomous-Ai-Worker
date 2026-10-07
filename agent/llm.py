@@ -14,7 +14,10 @@ import config
 
 logger = logging.getLogger("agent.llm")
 
-# Structured Action schemas
+class FillFormField(BaseModel):
+    id: str = Field(description="The e12 ID of the field to type into")
+    value: str = Field(description="The text to type")
+
 class ActionArgs(BaseModel):
     command: str | None = None
     url: str | None = None
@@ -35,6 +38,10 @@ class ActionArgs(BaseModel):
     due_date: str | None = None
     amount: str | None = None
     notes: str | None = None
+    fields: list[FillFormField] | None = None
+    submit: str | None = None
+    path: str | None = None
+    foo: str | None = None
 
 class GeminiResponseSchema(BaseModel):
     thought: str
@@ -488,14 +495,14 @@ async def call_openrouter(model: str, messages: list[dict], schema: Type[BaseMod
 
 # Chain Manager
 class LLMChainManager:
-    def __init__(self, raw_entries: list[tuple[str, str]] = None, check_models_list: bool = True):
+    def __init__(self, raw_entries: list[tuple[str, str]] = None, check_models_list: bool = False):
         self.raw_entries = raw_entries or config.CHAIN_ENTRIES
         self.entries: list[ChainEntry] = []
         self._init_chain(check_models_list=check_models_list)
 
-    def _init_chain(self, check_models_list: bool = True):
+    def _init_chain(self, check_models_list: bool = False):
         for provider, model in self.raw_entries:
-            # Check models.list() if requested
+            # Only check models.list() when explicitly requested (requires network)
             if check_models_list:
                 supported = get_supported_models(provider)
                 if supported and model not in supported:
@@ -503,13 +510,13 @@ class LLMChainManager:
                     continue
 
             entry = ChainEntry(provider, model)
-            # Check persisted state
+            # Check persisted state (disk only, no network)
             is_ex, reason, rem = is_entry_exhausted(provider, model)
             if is_ex:
                 entry.is_exhausted = True
                 entry.exhaustion_reason = reason
                 entry.exhaustion_expires_at = time.time() + rem
-                print(f"[LLM Chain] {provider}/{model} loaded as EXHAUSTED from state (reason: {reason}, expires in {int(rem)}s)", flush=True)
+                logger.info(f"[LLM Chain] {provider}/{model} loaded as EXHAUSTED (reason: {reason}, expires in {int(rem)}s)")
 
             self.entries.append(entry)
 
@@ -531,13 +538,26 @@ class LLMChainManager:
         expires_at = record_entry_exhaustion(entry.provider, entry.model, exhaustion_type, reason, retry_after)
         entry.exhaustion_expires_at = expires_at
         current_run_metrics.record_switch()
-        print(f"[LLM Chain] Marked '{entry.key}' as EXHAUSTED (type: {exhaustion_type}, reason: {reason})", flush=True)
+        logger.warning(f"[LLM Chain] Marked '{entry.key}' as EXHAUSTED (type: {exhaustion_type}, reason: {reason})")
 
-chain_manager = LLMChainManager()
+# Lazy singleton — created on first use via _get_chain_manager(), not at import time
+_chain_manager: LLMChainManager | None = None
+
+def _get_chain_manager() -> LLMChainManager:
+    """Return the active chain manager, creating the default one on first use (no network calls)."""
+    global _chain_manager
+    if _chain_manager is None:
+        _chain_manager = LLMChainManager(check_models_list=False)
+    return _chain_manager
 
 def set_chain_manager(custom_manager: LLMChainManager):
-    global chain_manager
-    chain_manager = custom_manager
+    global _chain_manager
+    _chain_manager = custom_manager
+
+# Alias kept for backward compatibility with tests that import chain_manager directly
+# Tests that need isolation should use set_chain_manager()
+def _compat_chain_manager():
+    return _get_chain_manager()
 
 # Backward-compatible Provider interface for tests
 class LLMProvider(ABC):
@@ -574,8 +594,10 @@ async def generate_action(
     else:
         messages = [{"role": "system", "content": system_prompt_or_messages}] + (history or [])
 
+    mgr = _get_chain_manager()
+
     while True:
-        entry = chain_manager.get_active_entry()
+        entry = mgr.get_active_entry()
         if not entry:
             current_run_metrics.status = "llm_quota_exhausted"
             current_run_metrics.finalize()
@@ -622,33 +644,34 @@ async def generate_action(
                     ex_type, ra, reason = classify_429(entry.provider, e)
 
                     if ex_type == "daily":
-                        chain_manager.mark_exhausted(entry, "daily", reason, retry_after=ra)
+                        mgr.mark_exhausted(entry, "daily", reason, retry_after=ra)
                         break  # Break inner loop, move to next entry
                     else:  # per_minute
                         wait_sec = ra if (ra and ra > 0) else min(30.0, (2 ** attempt) + random.uniform(0.1, 0.5))
                         if attempt < max_retries:
-                            print(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {wait_sec:.1f}s before retry...", flush=True)
+                            logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {wait_sec:.1f}s before retry...")
                             await asyncio.sleep(wait_sec)
                             last_error = str(e)
                             continue
                         else:
                             # Retries exhausted for this turn, mark per-minute in state and advance
-                            chain_manager.mark_exhausted(entry, "per_minute", reason, retry_after=wait_sec)
+                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=wait_sec)
                             break
 
                 elif "503" in err_str or "unavailable" in err_str.lower() or "timeout" in err_str.lower():
                     if attempt < max_retries:
-                        print(f"[MultiProvider] Entry '{entry.key}' transient 503/timeout error. Retrying in 2s...", flush=True)
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' transient 503/timeout error. Retrying in 2s...")
                         await asyncio.sleep(2)
                         last_error = str(e)
                         continue
                     else:
-                        print(f"[MultiProvider] Entry '{entry.key}' error persisted: {e}. Switching to next entry...", flush=True)
-                        chain_manager.mark_exhausted(entry, "per_minute", f"503 persisted: {e}", retry_after=300)
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' error persisted: {e}. Switching to next entry...")
+                        mgr.mark_exhausted(entry, "per_minute", f"503 persisted: {e}", retry_after=300)
                         break
 
                 else:
                     # Other errors (e.g. 404 deprecated model, 400 invalid request)
-                    print(f"[MultiProvider] Entry '{entry.key}' error: {e}. Switching to next entry...", flush=True)
-                    chain_manager.mark_exhausted(entry, "daily", f"Error: {e}")
+                    logger.warning(f"[MultiProvider] Entry '{entry.key}' error: {e}. Switching to next entry...")
+                    mgr.mark_exhausted(entry, "daily", f"Error: {e}")
                     break
+

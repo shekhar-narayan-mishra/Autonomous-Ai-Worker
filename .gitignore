@@ -12,3 +12,4 @@ ui/*.png
 .pytest_cache/
 .DS_Store
 .llm_state.json
+runs/

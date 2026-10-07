@@ -51,13 +51,17 @@ class BrowserContext:
             raw_snap = raw_snap[:3000] + "\n[Snapshot truncated]"
         return raw_snap
 
+class FillFormField(BaseModel):
+    id: str = Field(description="The e12 ID of the field to type into")
+    value: str = Field(description="The text to type")
+
 class BrowserArgs(BaseModel):
     command: str = Field(description="goto, click, type, select, press, wait, snapshot, extract_text, fill_form")
     url: str | None = Field(None, description="URL for goto")
     selector_id: str | None = Field(None, description="The e12 ID of the element to interact with")
     text: str | None = Field(None, description="Text to type or select")
     key: str | None = Field(None, description="Key to press (e.g. Enter)")
-    fields: dict[str, str] | None = Field(None, description="For fill_form: Dict mapping e12 ID to text to type")
+    fields: list[FillFormField] | None = Field(None, description="For fill_form: List of fields to type into")
     submit: str | None = Field(None, description="For fill_form: e12 ID of the submit button to click")
 
 class BrowserTool(BaseTool):
@@ -66,12 +70,13 @@ class BrowserTool(BaseTool):
     args_schema = BrowserArgs
     risk_level = RiskLevel.READ
 
-    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None, fields: dict = None, submit: str = None) -> ToolResult:
+    async def run(self, command: str, url: str = None, selector_id: str = None, text: str = None, key: str = None, fields: list[dict] = None, submit: str = None) -> ToolResult:
         page = BrowserContext.page
         if not page and command != 'goto':
             return ToolResult(ok=False, observation="Browser not initialized. Use goto first.")
         
         try:
+            feedback = ""
             if command == "goto":
                 await page.goto(url)
                 await page.wait_for_load_state("networkidle")
@@ -82,6 +87,7 @@ class BrowserTool(BaseTool):
             elif command == "type":
                 selector = f"[data-aid='{selector_id}']"
                 await page.fill(selector, text, timeout=5000)
+                feedback = f" ({selector_id} now '{text}')"
             elif command == "select":
                 selector = f"[data-aid='{selector_id}']"
                 await page.select_option(selector, label=text, timeout=5000)
@@ -92,8 +98,14 @@ class BrowserTool(BaseTool):
                 await asyncio.sleep(2)
             elif command == "fill_form":
                 if fields:
-                    for sid, val in fields.items():
+                    feedback_parts = []
+                    for field in fields:
+                        # Depending on pydantic version / whether dict or object is passed
+                        sid = field.id if hasattr(field, 'id') else field['id']
+                        val = field.value if hasattr(field, 'value') else field['value']
                         await page.fill(f"[data-aid='{sid}']", val, timeout=5000)
+                        feedback_parts.append(f"{sid} now '{val}'")
+                    feedback = " (" + ", ".join(feedback_parts) + ")"
                 if submit:
                     await page.click(f"[data-aid='{submit}']", timeout=5000)
                     await page.wait_for_load_state("networkidle")
@@ -105,7 +117,7 @@ class BrowserTool(BaseTool):
                 return ToolResult(ok=False, observation=f"Unknown command: {command}")
             
             snap = await BrowserContext.snapshot()
-            return ToolResult(ok=True, observation=snap)
+            return ToolResult(ok=True, observation=snap + feedback)
         except Exception as e:
             return ToolResult(ok=False, observation=str(e), error=str(e), error_type=type(e).__name__)
 

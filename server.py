@@ -16,9 +16,9 @@ app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 os.makedirs("ui", exist_ok=True)
-os.makedirs("screenshots", exist_ok=True)
+os.makedirs("runs", exist_ok=True)
 app.mount("/ui", StaticFiles(directory="ui"), name="ui")
-app.mount("/screenshots", StaticFiles(directory="screenshots"), name="screenshots")
+app.mount("/runs", StaticFiles(directory="runs"), name="runs")
 
 runs = {}
 

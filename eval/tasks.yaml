@@ -53,7 +53,7 @@
   expected_outcome: "success"
 
 - id: "duplicate_detection"
-  task: "Check if invoice INV-100 for Acme Corp is already in the ERP. If it is, do not enter it again, just finish."
+  task: "Check if invoice INV-101 for Acme Corp is already in the ERP. If it is, do not enter it again, just finish."
   verifier: "invoice_entry"
   vendor_name: "Acme Corp"
   expected_outcome: "success"
