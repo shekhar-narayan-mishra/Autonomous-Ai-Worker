@@ -1,7 +1,14 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from agent.llm import LLMChainManager, set_chain_manager, _SUPPORTED_MODELS_CACHE, save_llm_state
 import time
+from unittest.mock import patch
+
+import pytest
+
+from agent.llm import (
+    _SUPPORTED_MODELS_CACHE,
+    LLMChainManager,
+    save_llm_state,
+)
+
 
 @pytest.mark.asyncio
 async def test_first_step_no_models_list(monkeypatch):

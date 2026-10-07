@@ -52,7 +52,7 @@ async def test_loop_with_fake_llm(monkeypatch):
         if calls == 1:
             return LLMResponse(thought="t", action="dummy", args={"foo": "bar"}, expected_outcome="o"), {"tokens": {}, "latency_ms": 0}
         else:
-            return LLMResponse(thought="t2", action="finish", args={"summary": "done"}, expected_outcome="o2"), {"tokens": {}, "latency_ms": 0}
+            return LLMResponse(thought="t2", action="finish", args={"summary": "done", "evidence": "something"}, expected_outcome="o2"), {"tokens": {}, "latency_ms": 0}
             
     monkeypatch.setattr(agent.loop, "generate_action", fake_generate)
     

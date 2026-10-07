@@ -519,9 +519,18 @@
         panel.style.display = 'block';
         
         if (verifierData.passed) {
-            summary.innerHTML = `<h3 style="color:var(--success-color);">✅ Verification Passed</h3>`;
+            summary.innerHTML = `<h3 style="color:var(--success-color);">✅ Verification Passed (${verifierData.status || 'SUCCESS'})</h3>`;
         } else {
-            summary.innerHTML = `<h3 style="color:var(--danger-color);">❌ Verification Failed</h3>`;
+            let title = "Verification Failed";
+            if (verifierData.status === "stalled") title = "Run Stalled (No Progress)";
+            else if (verifierData.status === "blocked") title = "Run Blocked (Unresolved Error)";
+            else if (verifierData.status === "MAX_STEPS_REACHED") title = "Max Steps Reached";
+            else if (verifierData.status) title += ` (${verifierData.status})`;
+            
+            summary.innerHTML = `<h3 style="color:var(--danger-color);">❌ ${title}</h3>`;
+            if (verifierData.report) {
+                summary.innerHTML += `<p style="font-family:monospace; white-space:pre-wrap;">${verifierData.report}</p>`;
+            }
         }
         
         tbody.innerHTML = "";

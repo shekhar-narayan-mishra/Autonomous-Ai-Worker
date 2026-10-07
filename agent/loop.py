@@ -75,31 +75,36 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 with open("config/environment.yaml", "r") as f:
                     env_dict = yaml.safe_load(f)
                 
-                active_sessions = []
-                if browser.BrowserContext.page:
-                    cookies = await browser.BrowserContext.page.context.cookies()
-                    cookie_domains = {c['domain'] for c in cookies}
+                env_yaml = ""
+                for app in env_dict.get('apps', []):
+                    name = app.get('name', 'Unknown App')
+                    url = app.get('base_url', '')
+                    purpose = app.get('purpose', '')
+                    creds = app.get('credentials', {})
+                    cred_str = " ".join([f"{k}={v}" for k, v in creds.items()])
                     
-                    # Compress apps by removing verbose fields
-                    for app in env_dict.get('apps', []):
-                        app.pop("tools_to_use", None) # implied
-                        host = app['base_url'].replace('http://', '').replace('https://', '').split('/')[0].split(':')[0]
-                        if host in cookie_domains:
-                            active_sessions.append(app['name'])
-                            app.pop("credentials", None) # no need if logged in
-                
-                env_yaml = yaml.dump(env_dict)
-                if active_sessions:
-                    env_yaml = "Active: " + ", ".join(active_sessions) + "\n" + env_yaml
+                    app_line = f"{name} ({url})"
+                    if cred_str:
+                        app_line += f" login: {cred_str}"
+                    if purpose:
+                        app_line += f" purpose: {purpose}"
+                    
+                    env_yaml += app_line + "\n"
+                    
             except FileNotFoundError:
-                env_yaml = "No env config"
+                env_yaml = "No env config\n"
                 
-            if step == 1:
+            if step == 1 or step == 6 or step == 12:
                 os.makedirs("docs", exist_ok=True)
-                with open("docs/prompt_example.txt", "w") as f:
-                    f.write("Available environment:\n")
-                    f.write(env_yaml)
-                    
+                if step == 1:
+                    with open("docs/prompt_example.txt", "w") as f:
+                        f.write("Available environment:\n")
+                        f.write(env_yaml)
+                if step == 6:
+                    with open("docs/prompt_step6.txt", "w") as f:
+                        f.write("Available environment:\n")
+                        f.write(env_yaml)
+                        
             sys_segment = SYSTEM_PROMPT.replace("{tool_registry}", registry.get_system_prompt_segment())
             sys_segment = sys_segment.replace("{environment_context}", env_yaml)
             mem_segment = memory.format_for_prompt(rolling_window_size=2)
@@ -170,6 +175,13 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                             res = await tool.run(**action.args)
                             result_obs = res.observation
                             ok = res.ok
+                            
+                            # LOGIN-FAILURE FEEDBACK check
+                            if ok and action.expected_outcome and action.expected_outcome.lower() not in result_obs.lower():
+                                lower_obs = result_obs.lower()
+                                if "error" in lower_obs or "invalid" in lower_obs or "incorrect" in lower_obs or "fail" in lower_obs:
+                                    raise Exception(f"Action failed to produce expected outcome. Page shows an error. Re-read Available environment for this app's credentials before retrying. Observation: {result_obs}")
+                                    
                         except Exception as e:
                             err_class = rm.classify_error(e)
                             if err_class == ErrorClassification.TRANSIENT:
@@ -191,34 +203,53 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             obs_hash = hashlib.md5(result_obs.encode()).hexdigest()
             
             is_no_progress = False
-            if action.action in ["save_fact", "recall"]:
-                is_no_progress = True
-            elif obs_hash == last_obs_hash:
+            if action.action in ["save_fact", "recall"] or obs_hash == last_obs_hash:
                 is_no_progress = True
                 
             if is_no_progress:
                 no_progress_steps += 1
             else:
                 no_progress_steps = 0
+                nudge_count = 0
                 
             last_obs_hash = obs_hash
             
-            if no_progress_steps >= 3:
-                if nudge_count >= 2:
+            if no_progress_steps >= 2:
+                if nudge_count >= 1:
                     abort_reason = f"Abort: Stalled. Facts: {memory.format_for_prompt(100)}\nLast Obs: {result_obs}\nSteps: {step}"
                     print("Stalled.")
+                    if not ok and action.action not in ["finish", "save_fact", "recall"] and ("error" in result_obs.lower() or "invalid" in result_obs.lower() or "incorrect" in result_obs.lower()):
+                        status_str = "blocked"
+                        if event_bus:
+                            await event_bus.emit("step", {
+                                "step": step,
+                                "thought": "System blocked due to unresolved error",
+                                "action": "abort",
+                                "args": {},
+                                "observation": abort_reason,
+                                "latency_ms": 0,
+                                "screenshot_url": None,
+                                "retry_reason": None
+                            })
+                        # force ask_human
+                        await global_human_interface.ask("I am blocked by an unresolved error. Please help.")
+                    else:
+                        status_str = "stalled"
+                        if event_bus:
+                            await event_bus.emit("step", {
+                                "step": step,
+                                "thought": "System abort due to stalling",
+                                "action": "abort",
+                                "args": {},
+                                "observation": abort_reason,
+                                "latency_ms": 0,
+                                "screenshot_url": None,
+                                "retry_reason": None
+                            })
+                    err_dict = {"passed": False, "status": status_str, "checks": [], "evidence": {}, "report": abort_reason}
                     if event_bus:
-                        await event_bus.emit("step", {
-                            "step": step,
-                            "thought": "System abort due to stalling",
-                            "action": "abort",
-                            "args": {},
-                            "observation": abort_reason,
-                            "latency_ms": 0,
-                            "screenshot_url": None,
-                            "retry_reason": None
-                        })
-                    return {"passed": False, "status": "stalled", "checks": [], "evidence": {}, "report": abort_reason}
+                        await event_bus.emit("verifier_result", err_dict)
+                    return err_dict
                 else:
                     nudge_count += 1
                     result_obs += "\nSYSTEM: No progress. Take a new action or call finish."
@@ -270,7 +301,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             history.append({"role": "assistant", "content": action.model_dump_json()})
             history.append({"role": "user", "content": f"Tool execution {'succeeded' if ok else 'failed'}. Observation:\n{result_obs}"})
             
-            if action.action == "finish":
+            if action.action == "finish" and ok:
                 # ---------------------------------------------------------- #
                 # Finish state machine:
                 # finish → verifier → PASS → SUCCESS
@@ -330,5 +361,8 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             step += 1
             
         await b.close()
-        return {"passed": False, "status": "MAX_STEPS_REACHED", "checks": [], "evidence": {}}
+        err_dict = {"passed": False, "status": "MAX_STEPS_REACHED", "checks": [], "evidence": {}}
+        if event_bus:
+            await event_bus.emit("verifier_result", err_dict)
+        return err_dict
 

@@ -44,7 +44,15 @@ class SaveFactTool(BaseTool):
     args_schema = SaveFactArgs
     risk_level = RiskLevel.READ
     
+    def __init__(self):
+        super().__init__()
+        self.last_key = None
+        
     async def run(self, key: str, value: str) -> ToolResult:
+        if self.last_key == key:
+            return ToolResult(ok=False, observation=f"Error: You just called save_fact with key '{key}'. You may not call it with the same key twice in a row.")
+        self.last_key = key
+        
         if hasattr(self, 'store'):
             self.store.save_fact(key, value, getattr(self, 'current_step', 0))
             return ToolResult(ok=True, observation=f"Fact '{key}' saved.")
@@ -58,11 +66,19 @@ class RecallTool(BaseTool):
     description = "Recall a fact from memory."
     args_schema = RecallArgs
     risk_level = RiskLevel.READ
-    
+
+    def __init__(self):
+        super().__init__()
+        self.last_key = None
+        
     async def run(self, key: str) -> ToolResult:
+        if self.last_key == key:
+            return ToolResult(ok=False, observation=f"Error: You just called recall with key '{key}'. You may not call it with the same key twice in a row.")
+        self.last_key = key
+        
         if hasattr(self, 'store') and key in self.store.facts:
             return ToolResult(ok=True, observation=str(self.store.facts[key]['value']))
-        return ToolResult(ok=False, observation="Fact not found.")
+        return ToolResult(ok=True, observation="not found")
 
 save_fact_tool = SaveFactTool()
 recall_tool = RecallTool()

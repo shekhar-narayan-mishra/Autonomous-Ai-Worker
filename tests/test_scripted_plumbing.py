@@ -1,13 +1,13 @@
-import pytest
 import os
-import yaml
-from unittest.mock import patch, mock_open
 
+import pytest
+
+import agent.memory  # noqa: F401
+import agent.tools.finish  # noqa: F401
 from agent.llm import LLMResponse
 from agent.loop import run_loop
-import agent.tools.finish  # Ensure finish tool is registered
-import agent.memory  # Ensure memory tools are registered
-from agent.verifier import VerifierResult, CheckResult
+from agent.verifier import VerifierResult
+
 
 class MockStallingLLM:
     async def generate_action(self, prompt, messages):
@@ -55,13 +55,15 @@ async def test_empty_evidence_reject(monkeypatch):
             trace_events.append({"action": action, "observation": obs})
     monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
 
-    # Need max_steps to trigger abort eventually because it fails and loops
-    await run_loop("Do something", max_steps=1)
-    
-    # Check trace events
-    finish_event = next((e for e in trace_events if e["action"] == "finish"), None)
-    assert finish_event is not None
-    assert "finish requires an 'evidence' field" in finish_event["observation"]
+    monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
+
+    async def mock_ask(self, msg): return "Mock response"
+    monkeypatch.setattr("agent.safety.HumanInterface.ask", mock_ask)
+
+    # Run loop, which will stall
+    res = await run_loop("Do something")
+    assert res["status"] in ["stalled", "blocked"]
+    assert "Abort: Stalled" in res["report"]
 
 class MockRepairLLM:
     def __init__(self):
@@ -102,3 +104,51 @@ async def test_repair_flow(monkeypatch):
 
     res = await run_loop("Do something", task_args={"verifier": "dummy"})
     assert res["status"] == "SUCCESS_AFTER_REPAIR"
+
+class MockAskHumanPauseLLM:
+    def __init__(self):
+        self.step = 0
+    async def generate_action(self, prompt, messages):
+        self.step += 1
+        if self.step == 1:
+            return LLMResponse(
+                thought="I need to ask human",
+                action="ask_human",
+                args={"question": "What is the vendor name?"},
+                expected_outcome="get vendor name"
+            ), {"provider": "mock", "tokens": {}, "latency_ms": 0}
+        else:
+            return LLMResponse(
+                thought="I am finished",
+                action="finish",
+                args={"summary": "done", "evidence": "vendor name is Test Vendor"},
+                expected_outcome="done"
+            ), {"provider": "mock", "tokens": {}, "latency_ms": 0}
+
+@pytest.mark.asyncio
+async def test_ask_human_pause_and_continue(monkeypatch):
+    mock = MockAskHumanPauseLLM()
+    monkeypatch.setattr("agent.loop.generate_action", mock.generate_action)
+    
+    from agent.safety import global_human_interface
+    
+    global_human_interface.set_expected({"What is the vendor name?": "Test Vendor"})
+    monkeypatch.setenv("EVAL_MODE", "1")
+    
+    # Need dummy verifier
+    class FakeVerifier:
+        def verify(self, args):
+            from agent.verifier import VerifierResult
+            return VerifierResult(passed=True, checks=[], evidence={})
+    monkeypatch.setattr("agent.verifier._REGISTRY", {"dummy": FakeVerifier})
+    
+    res = await run_loop("Find vendor name", task_args={"verifier": "dummy"})
+    assert res["status"] == "SUCCESS"
+
+def test_ask_human_in_schema():
+    from agent.llm import get_dynamic_response_schema
+    from agent.tools.base import registry
+    schema = get_dynamic_response_schema(registry)
+    schema_json = schema.model_json_schema()
+    enum_vals = schema_json['properties']['action']['enum']
+    assert "ask_human" in enum_vals

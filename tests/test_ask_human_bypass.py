@@ -1,4 +1,3 @@
-import os
 
 import pytest
 import yaml
@@ -25,7 +24,7 @@ class MockLLM:
             return LLMResponse(
                 thought="finish",
                 action="finish",
-                args={"summary": "done"},
+                args={"summary": "done", "evidence": "url"},
                 expected_outcome="done"
             ), {"provider": "mock", "tokens": {}, "latency_ms": 0}
 
@@ -41,7 +40,7 @@ async def test_ask_human_bypass_credentials(monkeypatch):
         ]
     }
     
-    from unittest.mock import patch, mock_open
+    from unittest.mock import mock_open
     m_open = mock_open(read_data=yaml.dump(env_data))
     monkeypatch.setattr("builtins.open", m_open)
         

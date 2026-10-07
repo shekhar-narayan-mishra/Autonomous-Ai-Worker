@@ -32,11 +32,21 @@ def build_action_args_model(tool_registry: ToolRegistry = registry) -> type[Base
                 fields[fname] = (f.annotation | None, None)
     return create_model('ActionArgs', **fields)
 
-def get_gemini_response_schema(tool_registry: ToolRegistry = registry) -> type[BaseModel]:
+def get_dynamic_response_schema(tool_registry: ToolRegistry = registry) -> type[BaseModel]:
     ActionArgsDynamic = build_action_args_model(tool_registry)
-    return create_model('GeminiResponseSchema',
+    from typing import Literal
+    action_names = tuple(t.name for t in tool_registry.get_all())
+    
+    print(f"\n[LLM SCHEMA] Tool list: {action_names}")
+    
+    if action_names:
+        ActionLiteral = Literal[action_names]
+    else:
+        ActionLiteral = str
+
+    return create_model('DynamicResponseSchema',
         thought=(str, ...),
-        action=(str, ...),
+        action=(ActionLiteral, ...),
         args=(ActionArgsDynamic, ...),
         expected_outcome=(str, ...)
     )
@@ -390,11 +400,9 @@ async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel])
         else:
             contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
 
-    GeminiResponseSchema = get_gemini_response_schema()
-    
     gen_config = types.GenerateContentConfig(
         response_mime_type="application/json",
-        response_schema=GeminiResponseSchema,
+        response_schema=schema,
         system_instruction=system_instruction if system_instruction else None
     )
 
@@ -407,7 +415,7 @@ async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel])
     latency_ms = int((time.time() - start_time) * 1000)
 
     raw_text = resp.text
-    parsed_gemini = GeminiResponseSchema.model_validate_json(raw_text)
+    parsed_gemini = schema.model_validate_json(raw_text)
     args_dict = {k: v for k, v in parsed_gemini.args.model_dump().items() if v is not None}
     validated = LLMResponse(
         thought=parsed_gemini.thought,
@@ -612,6 +620,10 @@ async def generate_action(
 
     mgr = _get_chain_manager()
     attempts_log = []
+
+    # Inject dynamic schema with Enum if not overridden by test
+    if schema is LLMResponse:
+        schema = get_dynamic_response_schema()
 
     while True:
         entry = mgr.get_active_entry()
