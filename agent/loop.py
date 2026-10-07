@@ -28,6 +28,7 @@ Rules:
 - Check Known Facts before revisiting a page. If already logged in to an app, don't log in again.
 - Ask human ONLY if ambiguous, critical info missing, or blocked.
 - Do NOT finish until task is submitted in ERP or confirmed missing.
+- Every value you enter must come from an observation of the source the task names. Never infer completion from the destination system alone. In finish, cite the observation (URL/step) behind each requirement.
 
 Example:
 {"thought": "Extracting total", "action": "save_fact", "args": {"key": "invoice_total", "value": "100.00"}, "expected_outcome": "saved"}
@@ -59,6 +60,10 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
         browser.BrowserContext.page = page
         
         step = 1
+        no_progress_steps = 0
+        last_obs_hash = None
+        nudge_count = 0
+        done_nudge_sent = False
         while step <= max_steps:
             try:
                 rm.check_budgets(step)
@@ -78,7 +83,6 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     # Compress apps by removing verbose fields
                     for app in env_dict.get('apps', []):
                         app.pop("tools_to_use", None) # implied
-                        app.pop("purpose", None) # compress
                         host = app['base_url'].replace('http://', '').replace('https://', '').split('/')[0].split(':')[0]
                         if host in cookie_domains:
                             active_sessions.append(app['name'])
@@ -90,6 +94,12 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             except FileNotFoundError:
                 env_yaml = "No env config"
                 
+            if step == 1:
+                os.makedirs("docs", exist_ok=True)
+                with open("docs/prompt_example.txt", "w") as f:
+                    f.write("Available environment:\n")
+                    f.write(env_yaml)
+                    
             sys_segment = SYSTEM_PROMPT.replace("{tool_registry}", registry.get_system_prompt_segment())
             sys_segment = sys_segment.replace("{environment_context}", env_yaml)
             mem_segment = memory.format_for_prompt(rolling_window_size=2)
@@ -176,7 +186,49 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                             else:
                                 result_obs = str(e)
                                 ok = False
+
+            import hashlib
+            obs_hash = hashlib.md5(result_obs.encode()).hexdigest()
             
+            is_no_progress = False
+            if action.action in ["save_fact", "recall"]:
+                is_no_progress = True
+            elif obs_hash == last_obs_hash:
+                is_no_progress = True
+                
+            if is_no_progress:
+                no_progress_steps += 1
+            else:
+                no_progress_steps = 0
+                
+            last_obs_hash = obs_hash
+            
+            if no_progress_steps >= 3:
+                if nudge_count >= 2:
+                    abort_reason = f"Abort: Stalled. Facts: {memory.format_for_prompt(100)}\nLast Obs: {result_obs}\nSteps: {step}"
+                    print("Stalled.")
+                    if event_bus:
+                        await event_bus.emit("step", {
+                            "step": step,
+                            "thought": "System abort due to stalling",
+                            "action": "abort",
+                            "args": {},
+                            "observation": abort_reason,
+                            "latency_ms": 0,
+                            "screenshot_url": None,
+                            "retry_reason": None
+                        })
+                    return {"passed": False, "status": "stalled", "checks": [], "evidence": {}, "report": abort_reason}
+                else:
+                    nudge_count += 1
+                    result_obs += "\nSYSTEM: No progress. Take a new action or call finish."
+                    no_progress_steps = 0
+                    
+            if action.action != "finish" and ("done" in action.thought.lower() or "complete" in action.thought.lower() or "finish" in action.thought.lower()):
+                if not done_nudge_sent:
+                    result_obs += "\nSYSTEM: If complete, call finish with evidence."
+                    done_nudge_sent = True
+
             if run_id:
                 shot_dir = f"runs/{run_id}"
             else:
@@ -198,7 +250,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 "observation_summary": result_obs
             })
             
-            trace.log_step(step, action.thought, action.action, action.args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], shot_path)
+            trace.log_step(step, action.thought, action.action, action.args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], shot_path, metadata.get("attempts", []))
             
             if event_bus:
                 await event_bus.emit("step", {

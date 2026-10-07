@@ -19,6 +19,7 @@ class TraceLogger:
         tokens: dict,
         latency: int,
         screenshot_path: str = None,
+        attempts: list = None,
     ) -> None:
         # Normalise tokens — always store as {"prompt": N, "completion": N}
         if isinstance(tokens, dict):
@@ -37,6 +38,7 @@ class TraceLogger:
             "thought": thought,
             "action": action,
             "args": args,
+            "attempts": attempts or [],
             "observation_summary": (
                 observation[:200] + "..." if len(observation) > 200 else observation
             ),

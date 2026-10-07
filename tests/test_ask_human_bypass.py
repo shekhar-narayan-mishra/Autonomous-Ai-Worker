@@ -34,21 +34,22 @@ async def test_ask_human_bypass_credentials(monkeypatch):
     mock = MockLLM()
     monkeypatch.setattr("agent.loop.generate_action", mock.generate_action)
     
-    # ensure environment.yaml exists for test
-    os.makedirs("config", exist_ok=True)
+    # ensure environment.yaml exists for test by mocking
     env_data = {
         "apps": [
             {"name": "Internal ERP", "base_url": "http://localhost:8002", "credentials": {"username": "admin"}}
         ]
     }
-    with open("config/environment.yaml", "w") as f:
-        yaml.dump(env_data, f)
+    
+    from unittest.mock import patch, mock_open
+    m_open = mock_open(read_data=yaml.dump(env_data))
+    monkeypatch.setattr("builtins.open", m_open)
         
     # We also need to intercept trace logger to see the result
     trace_events = []
     class MockTrace:
         def __init__(self, *args, **kwargs): pass
-        def log_step(self, step, thought, action, args, obs, ok, tokens, latency, shot_path=None): 
+        def log_step(self, step, thought, action, args, obs, ok, tokens, latency, shot_path=None, attempts=None): 
             trace_events.append({"action": action, "observation": obs})
     monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
     

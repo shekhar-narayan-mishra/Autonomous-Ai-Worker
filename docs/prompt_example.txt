@@ -1,0 +1,14 @@
+Available environment:
+apps:
+- base_url: http://localhost:8001
+  credentials:
+    password: password123
+    username: admin
+  name: Vendor Portal
+  purpose: View and search vendor invoices
+- base_url: http://localhost:8002
+  credentials:
+    password: admin
+    username: admin
+  name: Internal ERP
+  purpose: Data entry for accounting, entering invoice amounts and due dates

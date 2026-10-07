@@ -28,6 +28,8 @@ class RunRequest(BaseModel):
     chaos: str | None = None
     auto_approve: bool = False
     vendor_name: str = "Acme Corp"
+    seed_profile: str = "base"
+    reset_env: bool = True
     
 class RespondRequest(BaseModel):
     response: str
@@ -54,7 +56,8 @@ async def start_run(req: RunRequest):
     async def agent_task():
         try:
             import subprocess
-            subprocess.run(["venv/bin/python", "mock_env/seed.py"], check=True)
+            if req.reset_env:
+                subprocess.run(["venv/bin/python", "mock_env/seed.py", req.seed_profile], check=True)
             
             task_args = {"verifier": "invoice_entry", "vendor_name": req.vendor_name}
             res = await run_loop(req.task, task_args=task_args, event_bus=bus, run_id=run_id)
@@ -106,3 +109,15 @@ async def get_env():
 @app.get("/")
 async def root():
     return FileResponse("ui/index.html")
+
+@app.on_event("startup")
+async def startup_event():
+    async def warmup():
+        import time
+        start = time.time()
+        from agent.llm import LLMChainManager, set_chain_manager
+        mgr = LLMChainManager(check_models_list=True)
+        set_chain_manager(mgr)
+        latency = time.time() - start
+        print(f"llm_chain_ready event emitted. Init time: {latency:.2f}s")
+    asyncio.create_task(warmup())

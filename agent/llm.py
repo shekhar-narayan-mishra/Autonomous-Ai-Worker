@@ -279,9 +279,19 @@ def classify_429(provider: str, error: Exception) -> tuple[str, float | None, st
 _SUPPORTED_MODELS_CACHE: dict[str, set[str]] = {}
 
 def get_supported_models(provider: str) -> set[str]:
-    """Fetch and cache available models via provider's models.list()."""
+    """Fetch and cache available models via provider's models.list() in .llm_state.json."""
     if provider in _SUPPORTED_MODELS_CACHE:
         return _SUPPORTED_MODELS_CACHE[provider]
+        
+    state = load_llm_state()
+    cache_key = f"models_cache_{provider}"
+    cache_info = state.get(cache_key)
+    now = time.time()
+    
+    if cache_info and cache_info.get("expires_at", 0) > now:
+        models = set(cache_info.get("models", []))
+        _SUPPORTED_MODELS_CACHE[provider] = models
+        return models
 
     models: set[str] = set()
     if provider == "gemini":
@@ -305,16 +315,27 @@ def get_supported_models(provider: str) -> set[str]:
     elif provider == "openrouter":
         if config.OPENROUTER_API_KEY:
             try:
-                import requests
+                import httpx
                 headers = {"Authorization": f"Bearer {config.OPENROUTER_API_KEY}"}
-                r = requests.get(f"{config.OPENROUTER_BASE_URL}/models", headers=headers, timeout=10)
-                if r.status_code == 200:
-                    for m in r.json().get("data", []):
-                        models.add(m["id"])
+                with httpx.Client(timeout=10) as c:
+                    r = c.get(f"{config.OPENROUTER_BASE_URL}/models", headers=headers)
+                    if r.status_code == 200:
+                        for m in r.json().get("data", []):
+                            models.add(m["id"])
             except Exception as e:
                 logger.warning(f"[OpenRouter] Failed to list models: {e}")
 
     _SUPPORTED_MODELS_CACHE[provider] = models
+    
+    # Save to state with 24h expiry
+    state = load_llm_state()
+    state[cache_key] = {
+        "models": list(models),
+        "expires_at": now + 86400.0,
+        "recorded_at": now
+    }
+    save_llm_state(state)
+    
     return models
 
 # Chain Entry Data Structure
@@ -341,13 +362,15 @@ class ChainEntry:
             return config.OPENROUTER_RPM_LIMIT
         return 15
 
-    async def pace(self):
+    async def pace(self) -> float:
         min_interval = 60.0 / max(1, self.rpm_limit)
         elapsed = time.time() - self.last_call_timestamp
+        wait_time = 0.0
         if elapsed < min_interval:
             wait_time = min_interval - elapsed
             await asyncio.sleep(wait_time)
         self.last_call_timestamp = time.time()
+        return wait_time
 
 # Provider Adapters
 async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[BaseModel, dict]:
@@ -588,6 +611,7 @@ async def generate_action(
         messages = [{"role": "system", "content": system_prompt_or_messages}] + (history or [])
 
     mgr = _get_chain_manager()
+    attempts_log = []
 
     while True:
         entry = mgr.get_active_entry()
@@ -607,7 +631,7 @@ async def generate_action(
                     "content": f"Failed to parse JSON on previous attempt:\n{last_error}\nPlease fix and output valid JSON."
                 })
 
-            await entry.pace()
+            wait_sec = await entry.pace()
 
             try:
                 if entry.provider == "gemini":
@@ -619,39 +643,71 @@ async def generate_action(
                 else:
                     raise RuntimeError(f"Unknown provider '{entry.provider}'")
 
+                attempts_log.append({
+                    "provider": entry.provider,
+                    "model": entry.model,
+                    "outcome": "success",
+                    "wait_sec": wait_sec
+                })
+                
+                usage["attempts"] = attempts_log
                 current_run_metrics.record_success(entry.provider, entry.model, usage["tokens"], usage["latency_ms"])
                 return action, usage
 
             except ValidationError as ve:
                 last_error = str(ve)
+                attempts_log.append({
+                    "provider": entry.provider,
+                    "model": entry.model,
+                    "outcome": "validation error",
+                    "wait_sec": wait_sec
+                })
                 continue
 
             except Exception as e:
                 err_str = str(e)
                 if "json_validate_failed" in err_str or "Failed to validate JSON" in err_str:
                     last_error = err_str
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": "json parse error",
+                        "wait_sec": wait_sec
+                    })
                     continue
 
                 if "429" in err_str or "rate limit" in err_str.lower() or "resource_exhausted" in err_str.lower():
                     current_run_metrics.record_429()
                     ex_type, ra, reason = classify_429(entry.provider, e)
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": f"429 rate limit ({ex_type})",
+                        "wait_sec": wait_sec
+                    })
 
                     if ex_type == "daily":
                         mgr.mark_exhausted(entry, "daily", reason, retry_after=ra)
                         break  # Break inner loop, move to next entry
                     else:  # per_minute
-                        wait_sec = ra if (ra and ra > 0) else min(30.0, (2 ** attempt) + random.uniform(0.1, 0.5))
+                        backoff = ra if (ra and ra > 0) else min(30.0, (2 ** attempt) + random.uniform(0.1, 0.5))
                         if attempt < max_retries:
-                            logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {wait_sec:.1f}s before retry...")
-                            await asyncio.sleep(wait_sec)
+                            logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {backoff:.1f}s before retry...")
+                            await asyncio.sleep(backoff)
                             last_error = str(e)
                             continue
                         else:
                             # Retries exhausted for this turn, mark per-minute in state and advance
-                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=wait_sec)
+                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
                             break
 
                 elif "503" in err_str or "unavailable" in err_str.lower() or "timeout" in err_str.lower():
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": "503/timeout",
+                        "wait_sec": wait_sec
+                    })
                     if attempt < max_retries:
                         logger.warning(f"[MultiProvider] Entry '{entry.key}' transient 503/timeout error. Retrying in 2s...")
                         await asyncio.sleep(2)
@@ -663,6 +719,12 @@ async def generate_action(
                         break
 
                 else:
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": f"error: {e}",
+                        "wait_sec": wait_sec
+                    })
                     # Other errors (e.g. 404 deprecated model, 400 invalid request)
                     logger.warning(f"[MultiProvider] Entry '{entry.key}' error: {e}. Switching to next entry...")
                     mgr.mark_exhausted(entry, "daily", f"Error: {e}")
