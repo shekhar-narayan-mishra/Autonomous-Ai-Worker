@@ -48,7 +48,7 @@ async def test_ask_human_bypass_credentials(monkeypatch):
     trace_events = []
     class MockTrace:
         def __init__(self, *args, **kwargs): pass
-        def log_step(self, step, thought, action, args, obs, ok, tokens, latency, shot_path=None, attempts=None): 
+        def log_step(self, step, thought, action, args, obs, *ext_args, **kwargs): 
             trace_events.append({"action": action, "observation": obs})
     monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
     

@@ -81,6 +81,64 @@ async def stream_run(run_id: str):
                 break
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+@app.get("/replay/{run_id}")
+async def replay_run(run_id: str, speed: float = 4.0):
+    async def event_generator():
+        trace_path = f"runs/{run_id}/trace.jsonl"
+        if not os.path.exists(trace_path):
+            yield f"data: {json.dumps({'type': 'final', 'data': {'result': 'error', 'error': 'trace not found'}})}\n\n"
+            return
+            
+        with open(trace_path, "r") as f:
+            lines = f.readlines()
+            
+        if lines:
+            try:
+                first = json.loads(lines[0])
+                last = json.loads(lines[-1])
+                original_duration = last["timestamp"] - first["timestamp"]
+                import datetime
+                date_str = datetime.datetime.fromtimestamp(first["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                yield f"data: {json.dumps({'type': 'replay_meta', 'data': {'run_id': run_id, 'date': date_str, 'original_duration': original_duration, 'compressed_duration': original_duration / speed}})}\n\n"
+            except Exception:
+                pass
+            
+        last_timestamp = None
+        for line in lines:
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            
+            event = {
+                "type": "step",
+                "data": {
+                    "step": entry.get("step"),
+                    "thought": entry.get("thought"),
+                    "action": entry.get("action"),
+                    "args": entry.get("args"),
+                    "observation": entry.get("observation_summary"),
+                    "latency_ms": entry.get("llm_inference_ms", entry.get("latency_ms", 0)),
+                    "wait_ms": entry.get("llm_wait_ms", 0),
+                    "tool_ms": entry.get("tool_ms", 0),
+                    "screenshot_url": f"/{entry['screenshot']}" if entry.get("screenshot") else None,
+                    "retry_reason": None,
+                    "is_replay": True,
+                    "speed": speed
+                }
+            }
+            
+            if last_timestamp is not None:
+                delay = entry["timestamp"] - last_timestamp
+                if delay > 0:
+                    await asyncio.sleep(delay / speed)
+            
+            yield f"data: {json.dumps(event)}\n\n"
+            last_timestamp = entry["timestamp"]
+            
+        yield f"data: {json.dumps({'type': 'final', 'data': {'result': 'success', 'is_replay': True}})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/respond/{run_id}")
 async def respond(run_id: str, req: RespondRequest):
     bus = runs[run_id]["bus"]

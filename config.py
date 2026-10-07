@@ -20,7 +20,7 @@ DEFAULT_CHAIN = [
 ]
 
 # Parse chain from environment if overridden
-raw_chain = os.getenv("LLM_CHAIN") or os.getenv("PROVIDER_CHAIN")
+raw_chain = os.getenv("LLM_CHAIN_ORDER") or os.getenv("LLM_CHAIN") or os.getenv("PROVIDER_CHAIN")
 if raw_chain:
     try:
         parsed = json.loads(raw_chain)

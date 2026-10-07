@@ -17,7 +17,9 @@ class TraceLogger:
         observation: str,
         ok: bool,
         tokens: dict,
-        latency: int,
+        llm_inference_ms: int,
+        llm_wait_ms: int,
+        tool_ms: int,
         screenshot_path: str = None,
         attempts: list = None,
     ) -> None:
@@ -44,7 +46,9 @@ class TraceLogger:
             ),
             "ok": ok,
             "tokens": tok_entry,
-            "latency_ms": int(latency) if latency else 0,
+            "llm_inference_ms": int(llm_inference_ms) if llm_inference_ms else 0,
+            "llm_wait_ms": int(llm_wait_ms) if llm_wait_ms else 0,
+            "tool_ms": int(tool_ms) if tool_ms else 0,
             "screenshot": screenshot_path,
         }
         with open(self.path, "a") as f:

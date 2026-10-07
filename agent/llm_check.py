@@ -62,6 +62,11 @@ async def check_entry(provider: str, model: str) -> dict:
             return {"key": key, "status": "ERROR", "reason": err_str}
 
 async def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--latency", action="store_true", help="Measure latency by making a real API call (spends quota)")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("LLM CHAIN HEALTH CHECK (agent.llm_check)")
     print("=" * 60)
@@ -77,6 +82,19 @@ async def main():
             active_entries.append((provider, model))
 
     print(f"\n--- Checking {len(active_entries)} Active Chain Entries ---")
+    
+    if not args.latency:
+        for provider, model in active_entries:
+            key = f"{provider}/{model}"
+            is_ex, reason, rem = is_entry_exhausted(provider, model)
+            if is_ex:
+                rem_str = f"{int(rem // 3600)}h {int((rem % 3600) // 60)}m" if rem > 3600 else f"{int(rem)}s"
+                print(f"[EXHAUSTED] {key} - Reason: {reason} (expires in {rem_str})")
+            else:
+                print(f"[CONFIGURED] {key} (use --latency to test connection)")
+        return
+
+    print("WARNING: --latency flag is set. Making real API calls which will spend quota.")
     results = []
     for provider, model in active_entries:
         res = await check_entry(provider, model)

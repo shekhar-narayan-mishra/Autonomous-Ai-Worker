@@ -39,10 +39,16 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
         current_event_bus.set(event_bus)
         
     os.makedirs("runs", exist_ok=True)
-    if os.path.exists("trace.jsonl"):
-        os.remove("trace.jsonl")
+    if run_id:
+        os.makedirs(f"runs/{run_id}", exist_ok=True)
+        trace_path = f"runs/{run_id}/trace.jsonl"
+    else:
+        trace_path = "trace.jsonl"
+        
+    if os.path.exists(trace_path):
+        os.remove(trace_path)
     
-    trace = TraceLogger("trace.jsonl")
+    trace = TraceLogger(trace_path)
     memory = MemoryStore()
     
     save_fact_tool.store = memory
@@ -147,6 +153,9 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             ok = False
             result_obs = ""
             
+            import time
+            tool_start = time.time()
+
             if not tool:
                 result_obs = f"Error: Tool {action.action} not found."
             else:
@@ -198,6 +207,8 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                             else:
                                 result_obs = str(e)
                                 ok = False
+            
+            tool_ms = int((time.time() - tool_start) * 1000)
 
             import hashlib
             obs_hash = hashlib.md5(result_obs.encode()).hexdigest()
@@ -281,7 +292,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 "observation_summary": result_obs
             })
             
-            trace.log_step(step, action.thought, action.action, action.args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], shot_path, metadata.get("attempts", []))
+            trace.log_step(step, action.thought, action.action, action.args, result_obs, ok, metadata["tokens"], metadata["latency_ms"], metadata.get("wait_ms", 0), tool_ms, shot_path, metadata.get("attempts", []))
             
             if event_bus:
                 await event_bus.emit("step", {
@@ -291,6 +302,8 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     "args": action.args,
                     "observation": result_obs,
                     "latency_ms": metadata["latency_ms"],
+                    "wait_ms": metadata.get("wait_ms", 0),
+                    "tool_ms": tool_ms,
                     "screenshot_url": f"/{shot_path}" if shot_path else None,
                     "retry_reason": retry_reason
                 })

@@ -375,9 +375,17 @@
     </div>
 </div>
 
-<script>
     let currentRunId = null;
     let eventSource = null;
+
+    window.onload = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const replayRunId = urlParams.get('replay');
+        const speed = urlParams.get('speed') || 4;
+        if (replayRunId) {
+            connectSSE(replayRunId, true, speed);
+        }
+    };
 
     // Load Env
     fetch('/env').then(r => r.json()).then(data => {
@@ -430,8 +438,24 @@
         connectSSE(currentRunId);
     }
 
-    function connectSSE(runId) {
-        eventSource = new EventSource(`/stream/${runId}`);
+    function connectSSE(runId, isReplay=false, speed=4) {
+        if (isReplay) {
+            eventSource = new EventSource(`/replay/${runId}?speed=${speed}`);
+            document.getElementById('run-btn').disabled = true;
+            document.getElementById('run-btn').textContent = "Replaying...";
+            document.getElementById('timeline').innerHTML = "";
+            document.getElementById('final-panel').style.display = "none";
+            document.getElementById('screenshot-container').innerHTML = "<p style='color: var(--text-muted); font-style: italic;'>No screenshots yet.</p>";
+            
+            // Add banner
+            const banner = document.createElement('div');
+            banner.id = "replay-banner";
+            banner.style = "background: var(--warning-color); color: #000; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; font-weight: bold;";
+            banner.innerHTML = `REPLAY of run ${runId} (speed ${speed}x)`;
+            document.querySelector('.right-panel').prepend(banner);
+        } else {
+            eventSource = new EventSource(`/stream/${runId}`);
+        }
         
         eventSource.onmessage = (e) => {
             const event = JSON.parse(e.data);
@@ -443,6 +467,12 @@
                         `<img src="${event.data.screenshot_url}?t=${Date.now()}" alt="Browser view">`;
                 }
             } 
+            else if (event.type === 'replay_meta') {
+                const banner = document.getElementById("replay-banner");
+                if (banner) {
+                    banner.innerHTML = `REPLAY of run ${event.data.run_id} recorded ${event.data.date}, ${Math.round(event.data.original_duration)} s compressed to ${Math.round(event.data.compressed_duration)} s`;
+                }
+            }
             else if (event.type === 'approval_request') {
                 showModal("Approval Required", 
                     `Action: <b>${event.data.action}</b><br>Args: ${JSON.stringify(event.data.args)}<br><br>Impact:<br><pre style="background:rgba(0,0,0,0.2);padding:1rem;">${event.data.diff}</pre>`,
@@ -466,6 +496,13 @@
     function addStep(data) {
         const tl = document.getElementById('timeline');
         const retry = data.retry_reason ? `<span class="step-badge retry-badge" title="${data.retry_reason}">Retry</span>` : '';
+        
+        let waitNote = '';
+        if (data.wait_ms > 3000) {
+            const waitedS = Math.round(data.wait_ms / 1000);
+            waitNote = `<span style="font-size:0.75rem; color:var(--danger-color); margin-left:0.5rem;" title="waited ${waitedS}s on rate limits">waited ${waitedS}s</span>`;
+        }
+
         const card = document.createElement('div');
         card.className = 'step-card';
         card.innerHTML = `
@@ -475,7 +512,10 @@
                     <span class="step-badge" style="background:var(--surface-hover); margin-left:0.5rem;">${data.action}</span>
                     ${retry}
                 </div>
-                <span style="font-size:0.8rem;color:var(--text-muted);">${data.latency_ms}ms</span>
+                <div>
+                    <span style="font-size:0.8rem;color:var(--text-muted);" title="LLM Inference: ${data.latency_ms}ms, Tool: ${data.tool_ms || 0}ms">${data.latency_ms}ms</span>
+                    ${waitNote}
+                </div>
             </div>
             <div class="step-thought">${data.thought}</div>
             <div class="step-obs">${data.observation}</div>

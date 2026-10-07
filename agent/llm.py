@@ -372,15 +372,15 @@ class ChainEntry:
             return config.OPENROUTER_RPM_LIMIT
         return 15
 
-    async def pace(self) -> float:
+    def get_pacing_wait(self) -> float:
         min_interval = 60.0 / max(1, self.rpm_limit)
         elapsed = time.time() - self.last_call_timestamp
-        wait_time = 0.0
         if elapsed < min_interval:
-            wait_time = min_interval - elapsed
-            await asyncio.sleep(wait_time)
+            return min_interval - elapsed
+        return 0.0
+
+    def record_call(self):
         self.last_call_timestamp = time.time()
-        return wait_time
 
 # Provider Adapters
 async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel]) -> tuple[BaseModel, dict]:
@@ -591,11 +591,14 @@ class LLMProvider(ABC):
     is_exhausted: bool = False
     last_call_timestamp: float = 0.0
 
-    async def pace(self):
+    def get_pacing_wait(self) -> float:
         min_interval = 60.0 / max(1, self.rpm_limit)
         elapsed = time.time() - self.last_call_timestamp
         if elapsed < min_interval:
-            await asyncio.sleep(min_interval - elapsed)
+            return min_interval - elapsed
+        return 0.0
+
+    def record_call(self):
         self.last_call_timestamp = time.time()
 
     @abstractmethod
@@ -625,12 +628,31 @@ async def generate_action(
     if schema is LLMResponse:
         schema = get_dynamic_response_schema()
 
+    total_wait = 0.0
+
     while True:
         entry = mgr.get_active_entry()
         if not entry:
-            current_run_metrics.status = "llm_quota_exhausted"
-            current_run_metrics.finalize()
-            raise LLMQuotaExhaustedError("All configured LLM chain entries are exhausted (status: llm_quota_exhausted).")
+            now = time.time()
+            cooling_down = [e for e in mgr.entries if e.is_exhausted and e.exhaustion_expires_at > now]
+            if cooling_down:
+                shortest = min(cooling_down, key=lambda x: x.exhaustion_expires_at)
+                wait_time = shortest.exhaustion_expires_at - now
+                if wait_time <= 20.0 and total_wait + wait_time <= 20.0:
+                    logger.warning(f"[MultiProvider] All entries exhausted. Waiting {wait_time:.1f}s for '{shortest.key}'...")
+                    await asyncio.sleep(wait_time)
+                    total_wait += wait_time
+                    shortest.is_exhausted = False
+                    shortest.exhaustion_reason = ""
+                    entry = shortest
+                else:
+                    current_run_metrics.status = "llm_quota_exhausted"
+                    current_run_metrics.finalize()
+                    raise LLMQuotaExhaustedError(f"All configurations exhausted. Shortest cooldown is {wait_time:.1f}s (exceeds limit).")
+            else:
+                current_run_metrics.status = "llm_quota_exhausted"
+                current_run_metrics.finalize()
+                raise LLMQuotaExhaustedError("All configured LLM chain entries are exhausted (status: llm_quota_exhausted).")
 
         working_messages = list(messages)
         last_error = ""
@@ -643,7 +665,17 @@ async def generate_action(
                     "content": f"Failed to parse JSON on previous attempt:\n{last_error}\nPlease fix and output valid JSON."
                 })
 
-            wait_sec = await entry.pace()
+            wait_sec = entry.get_pacing_wait()
+            if total_wait + wait_sec > 20.0:
+                logger.warning(f"[MultiProvider] Entry '{entry.key}' pacing wait ({wait_sec:.1f}s) exceeds total limit. Failing over...")
+                mgr.mark_exhausted(entry, "per_minute", "Pacing limit exceeded 20s", retry_after=wait_sec)
+                break
+                
+            if wait_sec > 0:
+                await asyncio.sleep(wait_sec)
+                total_wait += wait_sec
+                
+            entry.record_call()
 
             try:
                 if entry.provider == "gemini":
@@ -663,6 +695,7 @@ async def generate_action(
                 })
                 
                 usage["attempts"] = attempts_log
+                usage["wait_ms"] = int(total_wait * 1000)
                 current_run_metrics.record_success(entry.provider, entry.model, usage["tokens"], usage["latency_ms"])
                 return action, usage
 
@@ -702,10 +735,21 @@ async def generate_action(
                         mgr.mark_exhausted(entry, "daily", reason, retry_after=ra)
                         break  # Break inner loop, move to next entry
                     else:  # per_minute
-                        backoff = ra if (ra and ra > 0) else min(30.0, (2 ** attempt) + random.uniform(0.1, 0.5))
+                        backoff = ra if (ra and ra > 0) else min(8.0, (2 ** attempt) + random.uniform(0.1, 0.5))
+                        if backoff > 8.0:
+                            logger.warning(f"[MultiProvider] Entry '{entry.key}' retry-after > 8s ({backoff:.1f}s). Failing over...")
+                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
+                            break
+                        
+                        if total_wait + backoff > 20.0:
+                            logger.warning(f"[MultiProvider] Entry '{entry.key}' total wait > 20s. Failing over...")
+                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
+                            break
+
                         if attempt < max_retries:
                             logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {backoff:.1f}s before retry...")
                             await asyncio.sleep(backoff)
+                            total_wait += backoff
                             last_error = str(e)
                             continue
                         else:
@@ -722,7 +766,12 @@ async def generate_action(
                     })
                     if attempt < max_retries:
                         logger.warning(f"[MultiProvider] Entry '{entry.key}' transient 503/timeout error. Retrying in 2s...")
+                        if total_wait + 2.0 > 20.0:
+                            logger.warning(f"[MultiProvider] Entry '{entry.key}' total wait > 20s. Failing over...")
+                            mgr.mark_exhausted(entry, "per_minute", "503 timeout", retry_after=60.0)
+                            break
                         await asyncio.sleep(2)
+                        total_wait += 2.0
                         last_error = str(e)
                         continue
                     else:

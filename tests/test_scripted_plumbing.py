@@ -1,8 +1,7 @@
-import os
 
 import pytest
 
-import agent.memory  # noqa: F401
+import agent.memory
 import agent.tools.finish  # noqa: F401
 from agent.llm import LLMResponse
 from agent.loop import run_loop
@@ -26,7 +25,7 @@ async def test_stalling_abort(monkeypatch):
     trace_events = []
     class MockTrace:
         def __init__(self, *args, **kwargs): pass
-        def log_step(self, step, thought, action, args, obs, ok, tokens, latency, shot_path=None, attempts=None): 
+        def log_step(self, step, thought, action, args, obs, *ext_args, **kwargs): 
             trace_events.append({"action": action, "observation": obs})
     monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
 
@@ -51,7 +50,7 @@ async def test_empty_evidence_reject(monkeypatch):
     trace_events = []
     class MockTrace:
         def __init__(self, *args, **kwargs): pass
-        def log_step(self, step, thought, action, args, obs, ok, tokens, latency, shot_path=None, attempts=None): 
+        def log_step(self, step, thought, action, args, obs, *ext_args, **kwargs): 
             trace_events.append({"action": action, "observation": obs})
     monkeypatch.setattr("agent.loop.TraceLogger", MockTrace)
 
