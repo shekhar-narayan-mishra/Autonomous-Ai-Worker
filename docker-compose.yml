@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  autonomous-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: autonomous-ai-worker
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - LLM_CHAIN_ORDER=${LLM_CHAIN_ORDER:-}
+    restart: unless-stopped
