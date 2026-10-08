@@ -123,7 +123,9 @@ class BrowserTool(BaseTool):
                     env_dict = yaml.safe_load(f)
                 creds = None
                 for a in env_dict.get("apps", []):
-                    if a.get("name").lower() == (app or "").lower():
+                    app_name = a.get("name", "").lower().replace(" ", "").replace("_", "")
+                    target_app = (app or "").lower().replace(" ", "").replace("_", "")
+                    if app_name == target_app:
                         creds = a.get("credentials")
                         break
                 if not creds:

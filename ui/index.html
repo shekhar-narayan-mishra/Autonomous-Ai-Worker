@@ -3,598 +3,1069 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Autonomous AI Task Worker</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Autonomous AI Worker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --surface-color: #1e293b;
-            --surface-hover: #334155;
-            --primary-color: #3b82f6;
-            --primary-hover: #2563eb;
-            --text-color: #f8fafc;
-            --text-muted: #94a3b8;
-            --border-color: #334155;
-            --success-color: #10b981;
-            --danger-color: #ef4444;
-            --warning-color: #f59e0b;
+            --bg: #212121;
+            --bg-deep: #171717;
+            --surface: #2f2f2f;
+            --surface-hover: #383838;
+            --surface-elevated: #3a3a3a;
+
+            --border: #444444;
+            --border-subtle: #353535;
+
+            --text: #ececec;
+            --text-secondary: #b4b4b4;
+            --text-muted: #8e8e8e;
+
+            --accent: #10a37f;
+            --accent-hover: #1aaf8c;
+
+            --success: #2fbf71;
+            --warning: #d9a441;
+            --danger: #ef6666;
+            --info: #3b82f6;
+            
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            
+            --transition-speed: 200ms;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            line-height: 1.6;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-deep);
+            color: var(--text);
+            line-height: 1.5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 2rem;
-            display: grid;
-            grid-template-columns: 350px 1fr;
-            gap: 2rem;
+        /* Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
         }
 
-        /* Sidebar Controls */
+        /* Typography */
+        h1, h2, h3 { font-weight: 600; }
+        
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 24px;
+            background-color: var(--bg);
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        .header-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-status {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success);
+        }
+
+        .workspace {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Left Sidebar - Task Composer */
         .sidebar {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            height: fit-content;
+            width: 320px;
+            background-color: var(--bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+        
+        .sidebar-section {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .sidebar-section:last-child {
+            border-bottom: none;
         }
 
-        h1, h2, h3 {
-            margin-top: 0;
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-muted);
+            margin-bottom: 12px;
             font-weight: 600;
         }
 
-        h1 {
-            font-size: 1.5rem;
-            margin-bottom: 1.5rem;
-            background: linear-gradient(to right, #60a5fa, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
         .form-group {
-            margin-bottom: 1.2rem;
+            margin-bottom: 16px;
+        }
+        .form-group:last-child {
+            margin-bottom: 0;
         }
 
         label {
             display: block;
-            margin-bottom: 0.5rem;
-            font-size: 0.9rem;
-            color: var(--text-muted);
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
         }
 
         input[type="text"], textarea, select {
             width: 100%;
-            padding: 0.75rem;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            color: white;
+            background-color: var(--bg-deep);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
             font-family: inherit;
-            box-sizing: border-box;
-            transition: border-color 0.2s;
+            font-size: 14px;
+            padding: 10px 12px;
+            transition: border-color var(--transition-speed);
         }
         
         input[type="text"]:focus, textarea:focus, select:focus {
             outline: none;
-            border-color: var(--primary-color);
+            border-color: var(--accent);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
         }
 
-        button {
-            width: 100%;
-            padding: 0.75rem;
-            background: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        button:hover {
-            background: var(--primary-hover);
-            transform: translateY(-1px);
-        }
-
-        .checkbox-group {
+        /* Toggle Switch */
+        .toggle-group {
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            align-items: flex-start;
+            gap: 12px;
+            cursor: pointer;
         }
-
-        /* Main View */
-        .main-view {
+        .toggle-text {
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 2px;
+        }
+        .toggle-label {
+            font-size: 14px;
+            color: var(--text);
+        }
+        .toggle-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 36px;
+            height: 20px;
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--border);
+            transition: .2s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text);
+            transition: .2s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: var(--accent);
+        }
+        input:checked + .slider:before {
+            transform: translateX(16px);
         }
 
-        .panel {
-            background: rgba(30, 41, 59, 0.7);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
+        /* Primary Button */
+        button {
+            width: 100%;
+            background-color: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color var(--transition-speed), transform 100ms;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        button:hover:not(:disabled) {
+            background-color: var(--accent-hover);
+        }
+        button:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+        button:disabled {
+            background-color: var(--surface);
+            color: var(--text-muted);
+            cursor: not-allowed;
         }
 
         /* Environment Panel */
         .env-toggle {
             cursor: pointer;
-            color: var(--primary-color);
-            font-size: 0.9rem;
+            font-size: 13px;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 6px;
+            user-select: none;
+        }
+        .env-toggle:hover {
+            color: var(--text);
         }
         .env-content {
             display: none;
-            margin-top: 1rem;
-            font-size: 0.85rem;
+            margin-top: 12px;
         }
         .env-content pre {
-            background: rgba(0,0,0,0.3);
-            padding: 1rem;
-            border-radius: 8px;
+            background-color: var(--bg-deep);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 12px;
+            font-size: 12px;
+            font-family: monospace;
+            color: var(--text-secondary);
             overflow-x: auto;
         }
-        
-        /* Timeline */
-        .timeline {
+
+        /* Main Area */
+        .main-content {
+            flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 1rem;
-            max-height: 500px;
+            overflow: hidden;
+            background-color: var(--bg-deep);
+        }
+        
+        .main-grid {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* Timeline Area */
+        .timeline-section {
+            flex: 1;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-color: var(--bg);
+        }
+        .section-header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            background-color: var(--bg);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .timeline-feed {
+            flex: 1;
             overflow-y: auto;
-            padding-right: 0.5rem;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
         }
-
-        .step-card {
-            background: rgba(15, 23, 42, 0.5);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 1rem;
-            animation: slideIn 0.3s ease-out forwards;
+        
+        /* Timeline Items */
+        .timeline-item {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 24px;
+            position: relative;
+            animation: fadeIn 0.3s ease-out;
         }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(10px); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        .timeline-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 24px;
+            left: 5px;
+            bottom: -24px;
+            width: 2px;
+            background-color: var(--border-subtle);
+        }
+        .timeline-marker {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--border);
+            margin-top: 6px;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+        }
+        .timeline-marker.status-success { background-color: var(--success); }
+        .timeline-marker.status-active { background-color: var(--accent); }
+        .timeline-marker.status-warning { background-color: var(--warning); }
+        .timeline-marker.status-error { background-color: var(--danger); }
 
-        .step-header {
+        .timeline-content {
+            flex: 1;
+            background-color: var(--surface);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 16px;
+        }
+        .step-meta {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.5rem;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 12px;
         }
-
-        .step-badge {
-            background: var(--primary-color);
-            font-size: 0.75rem;
-            padding: 0.2rem 0.5rem;
-            border-radius: 12px;
-            font-weight: 600;
+        .step-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        
-        .retry-badge {
-            background: var(--warning-color);
-            margin-left: 0.5rem;
-        }
-
-        .step-thought {
-            font-style: italic;
+        .step-number {
             color: var(--text-muted);
-            margin-bottom: 0.5rem;
-            font-size: 0.9rem;
+            font-weight: 500;
         }
-        
+        .step-action {
+            color: var(--text);
+            font-family: monospace;
+            background-color: var(--bg-deep);
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-subtle);
+        }
+        .step-retry {
+            color: var(--warning);
+            font-size: 11px;
+            border: 1px solid var(--warning);
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+        .step-stats {
+            color: var(--text-muted);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        .wait-note {
+            color: var(--warning);
+        }
+        .step-thought {
+            font-size: 14px;
+            color: var(--text);
+            margin-bottom: 12px;
+        }
         .step-obs {
             font-family: monospace;
-            background: rgba(0,0,0,0.3);
-            padding: 0.5rem;
-            border-radius: 4px;
-            font-size: 0.85rem;
-            color: #a78bfa;
+            font-size: 12px;
+            background-color: var(--bg-deep);
+            color: var(--text-secondary);
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
             white-space: pre-wrap;
+            overflow-x: auto;
         }
 
-        /* Screenshots */
+        /* Right Panel: Browser & Verification */
+        .right-panel {
+            width: 450px;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            background-color: var(--bg);
+        }
+
+        .browser-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-bottom: 1px solid var(--border);
+            overflow: hidden;
+            min-height: 50%;
+        }
+        .browser-chrome {
+            background-color: var(--surface);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+        .browser-chrome .url-bar {
+            background-color: var(--bg-deep);
+            padding: 4px 12px;
+            border-radius: 4px;
+            flex: 1;
+            border: 1px solid var(--border-subtle);
+        }
+        .live-badge {
+            color: var(--danger);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .live-dot {
+            width: 6px; height: 6px;
+            background-color: var(--danger);
+            border-radius: 50%;
+        }
+
+        .screenshot-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--bg-deep);
+            overflow: hidden;
+            padding: 12px;
+        }
         .screenshot-container img {
             max-width: 100%;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
+            max-height: 100%;
+            object-fit: contain;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .empty-state {
+            color: var(--text-muted);
+            font-size: 13px;
+            text-align: center;
         }
 
-        /* Modal */
+        /* Verification Panel */
+        .verification-section {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .final-panel {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+        }
+        .verification-summary {
+            margin-bottom: 20px;
+            padding: 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-subtle);
+            background-color: var(--surface);
+        }
+        .verification-summary h3 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .success-text { color: var(--success); }
+        .error-text { color: var(--danger); }
+        
+        .check-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .check-table th, .check-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+        .check-table th {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .check-pass { color: var(--success); font-weight: 500; }
+        .check-fail { color: var(--danger); font-weight: 500; }
+
+        /* Modals */
         .modal-overlay {
             display: none;
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(4px);
+            background-color: rgba(0, 0, 0, 0.75);
             z-index: 1000;
             align-items: center;
             justify-content: center;
         }
         .modal {
-            background: var(--surface-color);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 2rem;
-            max-width: 500px;
-            width: 100%;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        }
-        .modal-buttons {
+            background-color: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 480px;
+            max-width: 90vw;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            overflow: hidden;
             display: flex;
-            gap: 1rem;
-            margin-top: 1.5rem;
+            flex-direction: column;
         }
-        .btn-danger { background: var(--danger-color); }
-        .btn-danger:hover { background: #dc2626; }
-        
-        /* Final Panel */
-        #final-panel {
-            display: none;
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 16px;
+            font-weight: 600;
+            background-color: var(--surface-elevated);
         }
-        .check-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-            font-size: 0.9rem;
+        .modal-body {
+            padding: 24px;
+            font-size: 14px;
+            color: var(--text);
+            max-height: 60vh;
+            overflow-y: auto;
         }
-        .check-table th, .check-table td {
-            padding: 0.75rem;
-            text-align: left;
-            border-bottom: 1px solid var(--border-color);
+        .modal-body pre {
+            background-color: var(--bg-deep);
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
+            margin-top: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            color: var(--text-secondary);
         }
-        .check-pass { color: var(--success-color); }
-        .check-fail { color: var(--danger-color); }
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border-subtle);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background-color: var(--bg);
+        }
+        .btn-secondary {
+            background-color: var(--surface-hover);
+            color: var(--text);
+            width: auto;
+            padding: 10px 20px;
+        }
+        .btn-secondary:hover:not(:disabled) {
+            background-color: var(--border-subtle);
+        }
+        .btn-danger {
+            background-color: var(--danger);
+            width: auto;
+            padding: 10px 20px;
+        }
+        .btn-danger:hover:not(:disabled) {
+            background-color: #dc2626;
+        }
+        .btn-primary {
+            width: auto;
+            padding: 10px 20px;
+        }
 
+        #modal-input-container {
+            margin-top: 16px;
+        }
+
+        /* Banner */
+        #replay-banner {
+            background-color: var(--warning);
+            color: #000;
+            padding: 12px 24px;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .workspace { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; flex-shrink: 0; border-right: none; border-bottom: 1px solid var(--border); }
+            .right-panel { width: 100%; border-left: none; border-top: 1px solid var(--border); flex-direction: row; min-height: 300px; }
+            .browser-section { border-bottom: none; border-right: 1px solid var(--border); }
+        }
+        @media (max-width: 768px) {
+            .right-panel { flex-direction: column; }
+            .browser-section { border-right: none; border-bottom: 1px solid var(--border); min-height: 250px; }
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div class="sidebar">
-        <h1>Autonomous AI Worker</h1>
-        
-        <div class="form-group">
-            <label>Task Description</label>
-            <textarea id="task-input" rows="4">Find the latest invoice from Acme Corp, extract the amount and due date, and enter it into the ERP.</textarea>
+    <header class="header">
+        <div class="header-title">
+            Autonomous AI Worker
         </div>
-        
-        <div class="form-group">
-            <label>Vendor Name (for verifier)</label>
-            <input type="text" id="vendor-input" value="Acme Corp">
+        <div class="header-status">
+            <div class="status-dot"></div>
+            Local Environment
         </div>
+    </header>
 
-        <div class="form-group">
-            <label>Chaos Flag</label>
-            <select id="chaos-select">
-                <option value="">None (Base Run)</option>
-                <option value="slow_load">Slow Load</option>
-                <option value="random_popup_modal">Random Popup Modal</option>
-                <option value="expired_session">Expired Session</option>
-                <option value="validation_error_on_first_submit">Validation Error on 1st Submit</option>
-                <option value="missing_field">Missing Field</option>
-                <option value="flaky_500">Flaky 500</option>
-            </select>
-        </div>
+    <div class="workspace">
+        <!-- Sidebar Controls -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <div class="section-title">Execution Settings</div>
+                
+                <div class="form-group">
+                    <label>Task Description</label>
+                    <textarea id="task-input">Find the latest invoice from Acme Corp, extract the amount and due date, and enter it into the ERP.</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label>Vendor Name (for verifier)</label>
+                    <input type="text" id="vendor-input" value="Acme Corp">
+                </div>
 
-        <div class="form-group checkbox-group">
-            <input type="checkbox" id="auto-approve" checked>
-            <label for="auto-approve" style="margin:0;">Auto-Approve Actions</label>
-        </div>
+                <div class="form-group">
+                    <label>Chaos Scenario</label>
+                    <select id="chaos-select">
+                        <option value="">None (Base Run)</option>
+                        <option value="slow_load">Slow Load</option>
+                        <option value="random_popup_modal">Random Popup Modal</option>
+                        <option value="expired_session">Expired Session</option>
+                        <option value="validation_error_on_first_submit">Validation Error on 1st Submit</option>
+                        <option value="missing_field">Missing Field</option>
+                        <option value="flaky_500">Flaky 500</option>
+                    </select>
+                </div>
 
-        <div class="form-group">
-            <label>Seed Profile</label>
-            <select id="seed-profile">
-                <option value="base">Base Profile</option>
-                <option value="empty_erp">Empty ERP</option>
-                <option value="no_invoices">No Invoices</option>
-            </select>
-        </div>
+                <div class="form-group">
+                    <label>Seed Profile</label>
+                    <select id="seed-profile">
+                        <option value="base">Base Profile</option>
+                        <option value="empty_erp">Empty ERP</option>
+                        <option value="no_invoices">No Invoices</option>
+                    </select>
+                </div>
 
-        <div class="form-group checkbox-group">
-            <input type="checkbox" id="reset-env" checked>
-            <label for="reset-env" style="margin:0;">Reset environment before run</label>
-        </div>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label class="toggle-group">
+                        <div class="switch">
+                            <input type="checkbox" id="auto-approve" checked>
+                            <span class="slider"></span>
+                        </div>
+                        <div class="toggle-text">
+                            <span class="toggle-label">Auto-Approve Actions</span>
+                            <span class="toggle-desc">Skip manual approval for demo</span>
+                        </div>
+                    </label>
+                </div>
 
-        <button id="run-btn" onclick="startRun()">Run Task</button>
-        
-        <div class="panel" style="margin-top: 2rem; padding: 1rem;">
-            <div class="env-toggle" onclick="toggleEnv()">
-                <span>⚙️ Environment Config</span>
-                <span id="env-arrow">▼</span>
+                <div class="form-group">
+                    <label class="toggle-group">
+                        <div class="switch">
+                            <input type="checkbox" id="reset-env" checked>
+                            <span class="slider"></span>
+                        </div>
+                        <div class="toggle-text">
+                            <span class="toggle-label">Reset Environment</span>
+                            <span class="toggle-desc">Fresh state before run</span>
+                        </div>
+                    </label>
+                </div>
             </div>
-            <div class="env-content" id="env-content">
-                <pre id="env-yaml">Loading...</pre>
+
+            <div class="sidebar-section" style="padding-top: 0; padding-bottom: 20px;">
+                <button id="run-btn" onclick="startRun()">
+                    <span>▶</span> Run Task
+                </button>
             </div>
-        </div>
+
+            <div class="sidebar-section">
+                <div class="env-toggle" onclick="toggleEnv()">
+                    <span id="env-arrow">▶</span> Environment Config
+                </div>
+                <div class="env-content" id="env-content">
+                    <pre id="env-yaml">Loading...</pre>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="replay-banner-container"></div>
+            <div class="main-grid">
+                <!-- Timeline -->
+                <section class="timeline-section">
+                    <div class="section-header">Agent Activity</div>
+                    <div class="timeline-feed" id="timeline">
+                        <div class="empty-state" style="margin: auto;">
+                            Your agent activity will appear here.
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Right Panel -->
+                <aside class="right-panel">
+                    <!-- Browser View -->
+                    <div class="browser-section">
+                        <div class="section-header" style="border-bottom: none; padding-bottom: 8px;">Browser Observation</div>
+                        <div class="browser-chrome">
+                            <div class="live-badge"><div class="live-dot"></div> LIVE</div>
+                            <div class="url-bar" id="browser-url">Waiting for connection...</div>
+                        </div>
+                        <div class="screenshot-container" id="screenshot-container">
+                            <div class="empty-state">Browser observations will appear during execution.</div>
+                        </div>
+                    </div>
+
+                    <!-- Verification Panel -->
+                    <div class="verification-section">
+                        <div class="section-header">Verification Result</div>
+                        <div class="final-panel" id="final-panel">
+                            <div class="verification-summary" id="final-summary"></div>
+                            <table class="check-table" id="verifier-table">
+                                <thead>
+                                    <tr>
+                                        <th>Check</th>
+                                        <th>Status</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div id="final-empty-state" class="empty-state" style="margin: auto; padding: 24px;">
+                            Verification results appear after the agent finishes.
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
     </div>
 
-    <div class="main-view">
-        <div class="panel">
-            <h2>Live Timeline</h2>
-            <div class="timeline" id="timeline"></div>
-        </div>
-        
-        <div class="panel">
-            <h2>Browser View</h2>
-            <div class="screenshot-container" id="screenshot-container">
-                <p style="color: var(--text-muted); font-style: italic;">No screenshots yet.</p>
-            </div>
-        </div>
-        
-        <div class="panel" id="final-panel">
-            <h2>Run Complete</h2>
-            <div id="final-summary"></div>
-            <table class="check-table" id="verifier-table">
-                <thead>
-                    <tr>
-                        <th>Check</th>
-                        <th>Status</th>
-                        <th>Details</th>
-                    </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- Modal -->
-<div class="modal-overlay" id="modal-overlay">
-    <div class="modal">
-        <h2 id="modal-title">Approval Required</h2>
-        <p id="modal-body" style="margin-bottom: 1rem;"></p>
-        
-        <div id="modal-input-container" style="display: none;">
-            <input type="text" id="modal-input" placeholder="Type your answer...">
-        </div>
-
-        <div class="modal-buttons" id="modal-approval-btns" style="display: none;">
-            <button class="btn-danger" onclick="respondToAgent('reject')">Reject</button>
-            <button onclick="respondToAgent('approve')">Approve</button>
-        </div>
-        
-        <div class="modal-buttons" id="modal-submit-btns" style="display: none;">
-            <button onclick="respondToAgent(document.getElementById('modal-input').value)">Submit</button>
-        </div>
-    </div>
-</div>
-
-<script>
-    let currentRunId = null;
-    let eventSource = null;
-
-    window.onload = () => {
-        const urlParams = new URLSearchParams(window.location.search);
-        const replayRunId = urlParams.get('replay');
-        const speed = urlParams.get('speed') || 4;
-        if (replayRunId) {
-            connectSSE(replayRunId, true, speed);
-        }
-    };
-
-    // Load Env
-    fetch('/env').then(r => r.json()).then(data => {
-        document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
-    });
-
-    function toggleEnv() {
-        const content = document.getElementById('env-content');
-        const arrow = document.getElementById('env-arrow');
-        if (content.style.display === 'block') {
-            content.style.display = 'none';
-            arrow.textContent = '▼';
-        } else {
-            content.style.display = 'block';
-            arrow.textContent = '▲';
-        }
-    }
-
-    async function startRun() {
-        const task = document.getElementById('task-input').value;
-        const vendor = document.getElementById('vendor-input').value;
-        const chaos = document.getElementById('chaos-select').value;
-        const autoApprove = document.getElementById('auto-approve').checked;
-        const seedProfile = document.getElementById('seed-profile').value;
-        const resetEnv = document.getElementById('reset-env').checked;
-
-        document.getElementById('run-btn').disabled = true;
-        document.getElementById('run-btn').textContent = "Running...";
-        document.getElementById('timeline').innerHTML = "";
-        document.getElementById('final-panel').style.display = "none";
-        document.getElementById('screenshot-container').innerHTML = "<p style='color: var(--text-muted); font-style: italic;'>No screenshots yet.</p>";
-        
-        if (eventSource) eventSource.close();
-
-        const res = await fetch('/run', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                task: task,
-                chaos: chaos || null,
-                auto_approve: autoApprove,
-                vendor_name: vendor,
-                seed_profile: seedProfile,
-                reset_env: resetEnv
-            })
-        });
-        const data = await res.json();
-        currentRunId = data.run_id;
-        
-        connectSSE(currentRunId);
-    }
-
-    function connectSSE(runId, isReplay=false, speed=4) {
-        if (isReplay) {
-            eventSource = new EventSource(`/replay/${runId}?speed=${speed}`);
-            document.getElementById('run-btn').disabled = true;
-            document.getElementById('run-btn').textContent = "Replaying...";
-            document.getElementById('timeline').innerHTML = "";
-            document.getElementById('final-panel').style.display = "none";
-            document.getElementById('screenshot-container').innerHTML = "<p style='color: var(--text-muted); font-style: italic;'>No screenshots yet.</p>";
+    <!-- Modals -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header" id="modal-title">Approval Required</div>
+            <div class="modal-body" id="modal-body"></div>
             
-            // Add banner
-            const banner = document.createElement('div');
-            banner.id = "replay-banner";
-            banner.style = "background: var(--warning-color); color: #000; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; font-weight: bold;";
-            banner.innerHTML = `REPLAY of run ${runId} (speed ${speed}x)`;
-            document.querySelector('.main-view').prepend(banner);
-        } else {
-            eventSource = new EventSource(`/stream/${runId}`);
-        }
-        
-        eventSource.onmessage = (e) => {
-            const event = JSON.parse(e.data);
+            <div class="modal-body" id="modal-input-container" style="display: none; padding-top: 0; padding-bottom: 0;">
+                <input type="text" id="modal-input" placeholder="Type your answer...">
+            </div>
+
+            <div class="modal-footer" id="modal-approval-btns" style="display: none;">
+                <button class="btn-secondary" onclick="respondToAgent('reject')">Reject</button>
+                <button class="btn-primary" onclick="respondToAgent('approve')">Approve</button>
+            </div>
             
-            if (event.type === 'step') {
-                addStep(event.data);
-                if (event.data.screenshot_url) {
-                    document.getElementById('screenshot-container').innerHTML = 
-                        `<img src="${event.data.screenshot_url}?t=${Date.now()}" alt="Browser view">`;
-                }
-            } 
-            else if (event.type === 'replay_meta') {
-                const banner = document.getElementById("replay-banner");
-                if (banner) {
-                    banner.innerHTML = `REPLAY of run ${event.data.run_id} recorded ${event.data.date}, ${Math.round(event.data.original_duration)} s compressed to ${Math.round(event.data.compressed_duration)} s`;
-                }
-            }
-            else if (event.type === 'approval_request') {
-                showModal("Approval Required", 
-                    `Action: <b>${event.data.action}</b><br>Args: ${JSON.stringify(event.data.args)}<br><br>Impact:<br><pre style="background:rgba(0,0,0,0.2);padding:1rem;">${event.data.diff}</pre>`,
-                    'approval'
-                );
-            }
-            else if (event.type === 'clarification_request') {
-                showModal("Clarification Required", event.data.question, 'clarification');
-            }
-            else if (event.type === 'verifier_result') {
-                showFinal(event.data);
-            }
-            else if (event.type === 'final') {
-                eventSource.close();
-                document.getElementById('run-btn').disabled = false;
-                document.getElementById('run-btn').textContent = "Run Task";
+            <div class="modal-footer" id="modal-submit-btns" style="display: none;">
+                <button class="btn-primary" onclick="respondToAgent(document.getElementById('modal-input').value)">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentRunId = null;
+        let eventSource = null;
+
+        window.onload = () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const replayRunId = urlParams.get('replay');
+            const speed = urlParams.get('speed') || 4;
+            if (replayRunId) {
+                connectSSE(replayRunId, true, speed);
             }
         };
-    }
 
-    function addStep(data) {
-        const tl = document.getElementById('timeline');
-        const retry = data.retry_reason ? `<span class="step-badge retry-badge" title="${data.retry_reason}">Retry</span>` : '';
-        
-        let waitNote = '';
-        if (data.wait_ms > 3000) {
-            const waitedS = Math.round(data.wait_ms / 1000);
-            waitNote = `<span style="font-size:0.75rem; color:var(--danger-color); margin-left:0.5rem;" title="waited ${waitedS}s on rate limits">waited ${waitedS}s</span>`;
-        }
-
-        const card = document.createElement('div');
-        card.className = 'step-card';
-        card.innerHTML = `
-            <div class="step-header">
-                <div>
-                    <span class="step-badge">Step ${data.step}</span>
-                    <span class="step-badge" style="background:var(--surface-hover); margin-left:0.5rem;">${data.action}</span>
-                    ${retry}
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size:0.7rem; color:var(--text-muted); margin-bottom: 2px;">
-                        ${data.provider || 'unknown'}/${data.model || 'unknown'}
-                    </div>
-                    <div>
-                        <span style="font-size:0.75rem;color:var(--text-muted);" title="LLM Inference: ${data.latency_ms}ms, Wait: ${data.wait_ms || 0}ms, Tool: ${data.tool_ms || 0}ms">
-                            inf:${data.latency_ms}ms | wait:${data.wait_ms || 0}ms | tool:${data.tool_ms || 0}ms
-                        </span>
-                        ${waitNote}
-                    </div>
-                </div>
-            </div>
-            <div class="step-thought">${data.thought}</div>
-            <div class="step-obs">${data.observation}</div>
-        `;
-        tl.appendChild(card);
-        tl.scrollTop = tl.scrollHeight;
-    }
-
-    function showModal(title, body, type) {
-        document.getElementById('modal-title').textContent = title;
-        document.getElementById('modal-body').innerHTML = body;
-        
-        if (type === 'approval') {
-            document.getElementById('modal-input-container').style.display = 'none';
-            document.getElementById('modal-approval-btns').style.display = 'flex';
-            document.getElementById('modal-submit-btns').style.display = 'none';
-        } else {
-            document.getElementById('modal-input-container').style.display = 'block';
-            document.getElementById('modal-input').value = "";
-            document.getElementById('modal-approval-btns').style.display = 'none';
-            document.getElementById('modal-submit-btns').style.display = 'flex';
-        }
-        
-        document.getElementById('modal-overlay').style.display = 'flex';
-    }
-
-    async function respondToAgent(response) {
-        document.getElementById('modal-overlay').style.display = 'none';
-        await fetch(`/respond/${currentRunId}`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({response: response})
+        // Load Env
+        fetch('/env').then(r => r.json()).then(data => {
+            document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
         });
-    }
 
-    function showFinal(verifierData) {
-        const panel = document.getElementById('final-panel');
-        const summary = document.getElementById('final-summary');
-        const tbody = document.querySelector('#verifier-table tbody');
-        
-        panel.style.display = 'block';
-        
-        if (verifierData.passed) {
-            summary.innerHTML = `<h3 style="color:var(--success-color);">✅ Verification Passed (${verifierData.status || 'SUCCESS'})</h3>`;
-        } else {
-            let title = "Verification Failed";
-            if (verifierData.status === "stalled") title = "Run Stalled (No Progress)";
-            else if (verifierData.status === "blocked") title = "Run Blocked (Unresolved Error)";
-            else if (verifierData.status === "MAX_STEPS_REACHED") title = "Max Steps Reached";
-            else if (verifierData.status) title += ` (${verifierData.status})`;
-            
-            summary.innerHTML = `<h3 style="color:var(--danger-color);">❌ ${title}</h3>`;
-            if (verifierData.report) {
-                summary.innerHTML += `<p style="font-family:monospace; white-space:pre-wrap;">${verifierData.report}</p>`;
+        function toggleEnv() {
+            const content = document.getElementById('env-content');
+            const arrow = document.getElementById('env-arrow');
+            if (content.style.display === 'block') {
+                content.style.display = 'none';
+                arrow.textContent = '▶';
+            } else {
+                content.style.display = 'block';
+                arrow.textContent = '▼';
             }
         }
-        
-        tbody.innerHTML = "";
-        verifierData.checks.forEach(c => {
-            const tr = document.createElement('tr');
-            const statusClass = c.passed ? 'check-pass' : 'check-fail';
-            const icon = c.passed ? '✓' : '✗';
-            tr.innerHTML = `
-                <td>${c.name}</td>
-                <td class="${statusClass}"><b>${icon} ${c.passed ? 'Pass' : 'Fail'}</b></td>
-                <td>${c.details}</td>
-            `;
-            tbody.appendChild(tr);
-        });
-    }
-</script>
 
+        async function startRun() {
+            const task = document.getElementById('task-input').value;
+            const vendor = document.getElementById('vendor-input').value;
+            const chaos = document.getElementById('chaos-select').value;
+            const autoApprove = document.getElementById('auto-approve').checked;
+            const seedProfile = document.getElementById('seed-profile').value;
+            const resetEnv = document.getElementById('reset-env').checked;
+
+            const runBtn = document.getElementById('run-btn');
+            runBtn.disabled = true;
+            runBtn.innerHTML = "<span>⚙</span> Running...";
+            
+            document.getElementById('timeline').innerHTML = "";
+            document.getElementById('final-panel').style.display = "none";
+            document.getElementById('final-empty-state').style.display = "block";
+            document.getElementById('screenshot-container').innerHTML = `<div class="empty-state">Waiting for observation...</div>`;
+            document.getElementById('browser-url').textContent = "Waiting for connection...";
+            document.getElementById('replay-banner-container').innerHTML = "";
+            
+            if (eventSource) eventSource.close();
+
+            const res = await fetch('/run', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    task: task,
+                    chaos: chaos || null,
+                    auto_approve: autoApprove,
+                    vendor_name: vendor,
+                    seed_profile: seedProfile,
+                    reset_env: resetEnv
+                })
+            });
+            const data = await res.json();
+            currentRunId = data.run_id;
+            
+            connectSSE(currentRunId);
+        }
+
+        function connectSSE(runId, isReplay=false, speed=4) {
+            const runBtn = document.getElementById('run-btn');
+            if (isReplay) {
+                eventSource = new EventSource(`/replay/${runId}?speed=${speed}`);
+                runBtn.disabled = true;
+                runBtn.innerHTML = "<span>▶</span> Replaying...";
+                document.getElementById('timeline').innerHTML = "";
+                document.getElementById('final-panel').style.display = "none";
+                document.getElementById('final-empty-state').style.display = "block";
+                document.getElementById('screenshot-container').innerHTML = `<div class="empty-state">Waiting for observation...</div>`;
+                
+                const bannerContainer = document.getElementById('replay-banner-container');
+                bannerContainer.innerHTML = `<div id="replay-banner">REPLAY of run ${runId} (speed ${speed}x)</div>`;
+            } else {
+                eventSource = new EventSource(`/stream/${runId}`);
+            }
+            
+            eventSource.onmessage = (e) => {
+                const event = JSON.parse(e.data);
+                
+                if (event.type === 'step') {
+                    addStep(event.data);
+                    if (event.data.screenshot_url) {
+                        document.getElementById('screenshot-container').innerHTML = 
+                            `<img src="${event.data.screenshot_url}?t=${Date.now()}" alt="Browser view">`;
+                    }
+                    if (event.data.action && event.data.action.includes('browser.')) {
+                        // Attempt to extract URL or contextual hint if present, else just generic status
+                        document.getElementById('browser-url').textContent = `Agent executing: ${event.data.action}`;
+                    }
+                } 
+                else if (event.type === 'replay_meta') {
+                    const banner = document.getElementById("replay-banner");
+                    if (banner) {
+                        banner.innerHTML = `<div>REPLAY of run ${event.data.run_id} recorded ${event.data.date}</div><div>${Math.round(event.data.original_duration)}s compressed to ${Math.round(event.data.compressed_duration)}s</div>`;
+                    }
+                }
+                else if (event.type === 'approval_request') {
+                    let formattedDiff = event.data.diff ? `<pre>${event.data.diff}</pre>` : '';
+                    showModal("Approval Required", 
+                        `<div style="margin-bottom:12px;">The agent wants to perform the following action:</div>
+                         <div style="margin-bottom:8px;"><strong>Action:</strong> <code>${event.data.action}</code></div>
+                         <div style="margin-bottom:16px;"><strong>Args:</strong> <span style="color:var(--text-muted);">${JSON.stringify(event.data.args)}</span></div>
+                         <div><strong>Impact / Diff:</strong>${formattedDiff}</div>`,
+                        'approval'
+                    );
+                }
+                else if (event.type === 'clarification_request') {
+                    showModal("Clarification Needed", `<div style="margin-bottom:16px; font-size:15px;">${event.data.question}</div>`, 'clarification');
+                }
+                else if (event.type === 'verifier_result') {
+                    showFinal(event.data);
+                }
+                else if (event.type === 'final') {
+                    eventSource.close();
+                    runBtn.disabled = false;
+                    runBtn.innerHTML = "<span>▶</span> Run Task";
+                }
+            };
+        }
+
+        function addStep(data) {
+            const tl = document.getElementById('timeline');
+            
+            let waitNote = '';
+            if (data.wait_ms > 3000) {
+                const waitedS = Math.round(data.wait_ms / 1000);
+                waitNote = `<span class="wait-note" title="waited ${waitedS}s on rate limits">waited ${waitedS}s</span>`;
+            }
+
+            let markerClass = "status-active";
+            if (data.retry_reason) markerClass = "status-warning";
+            // if final success/error we could change it, but standard steps are active or warning
+
+            const retryHtml = data.retry_reason ? `<span class="step-retry" title="${data.retry_reason}">Retry</span>` : '';
+
+            const item = document.createElement('div');
+            item.className = 'timeline-item';
+            item.innerHTML = `
+                <div class="timeline-marker ${markerClass}"></div>
+                <div class="timeline-content">
+                    <div class="step-meta">
+                        <div class="step-title">
+                            <span class="step-number">STEP ${(data.step || 0).toString().padStart(2, '0')}</span>
+                            <span class="step-action">${data.action}</span>
+                            ${retryHtml}
+                        </div>
+                        <div class="step-stats">
+                            <span title="LLM Inference: ${data.latency_ms}ms, Wait: ${data.wait_ms || 0}ms, Tool: ${data.tool_ms || 0}ms">
+                                inf:${data.latency_ms}ms | wait:${data.wait_ms || 0}ms | tool:${data.tool_ms || 0}ms
+                            </span>
+                            ${waitNote}
+                        </div>
+                    </div>
+                    <div class="step-thought">${data.thought || 'Processing...'}</div>
+                    <div class="step-obs">${data.observation || 'No observation returned.'}</div>
+                </div>
+            `;
+            tl.appendChild(item);
+            tl.scrollTop = tl.scrollHeight;
+        }
+
+        function showModal(title, body, type) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').innerHTML = body;
+            
+            if (type === 'approval') {
+                document.getElementById('modal-input-container').style.display = 'none';
+                document.getElementById('modal-approval-btns').style.display = 'flex';
+                document.getElementById('modal-submit-btns').style.display = 'none';
+            } else {
+                document.getElementById('modal-input-container').style.display = 'block';
+                document.getElementById('modal-input').value = "";
+                document.getElementById('modal-approval-btns').style.display = 'none';
+                document.getElementById('modal-submit-btns').style.display = 'flex';
+            }
+            
+            document.getElementById('modal-overlay').style.display = 'flex';
+        }
+
+        async function respondToAgent(response) {
+            document.getElementById('modal-overlay').style.display = 'none';
+            await fetch(`/respond/${currentRunId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({response: response})
+            });
+        }
+
+        function showFinal(verifierData) {
+            document.getElementById('final-empty-state').style.display = 'none';
+            const panel = document.getElementById('final-panel');
+            const summary = document.getElementById('final-summary');
+            const tbody = document.querySelector('#verifier-table tbody');
+            
+            panel.style.display = 'block';
+            
+            if (verifierData.passed) {
+                summary.innerHTML = `<h3 class="success-text">✓ Verification Passed</h3>
+                                     <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">Task completed and independently verified.</div>`;
+            } else {
+                let title = "Verification Failed";
+                if (verifierData.status === "stalled") title = "Run Stalled (No Progress)";
+                else if (verifierData.status === "blocked") title = "Run Blocked (Unresolved Error)";
+                else if (verifierData.status === "MAX_STEPS_REACHED") title = "Max Steps Reached";
+                else if (verifierData.status) title += ` (${verifierData.status})`;
+                
+                let reportHtml = verifierData.report ? `<pre style="background:var(--bg-deep); padding:12px; border-radius:6px; border:1px solid var(--border-subtle); margin-top:12px; font-family:monospace; font-size:12px; color:var(--text-secondary); white-space:pre-wrap;">${verifierData.report}</pre>` : '';
+
+                summary.innerHTML = `<h3 class="error-text">✗ ${title}</h3>${reportHtml}`;
+            }
+            
+            tbody.innerHTML = "";
+            verifierData.checks.forEach(c => {
+                const tr = document.createElement('tr');
+                const statusClass = c.passed ? 'check-pass' : 'check-fail';
+                const icon = c.passed ? '✓' : '✗';
+                tr.innerHTML = `
+                    <td>${c.name}</td>
+                    <td class="${statusClass}">${icon} ${c.passed ? 'Pass' : 'Fail'}</td>
+                    <td style="color:var(--text-muted);">${c.details || ''}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            
+            // Mark last timeline step with appropriate status color
+            const markers = document.querySelectorAll('.timeline-marker');
+            if(markers.length > 0) {
+                const lastMarker = markers[markers.length - 1];
+                lastMarker.classList.remove('status-active', 'status-warning');
+                lastMarker.classList.add(verifierData.passed ? 'status-success' : 'status-error');
+            }
+        }
+    </script>
 </body>
 </html>
