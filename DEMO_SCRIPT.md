@@ -1,42 +1,35 @@
-# Autonomous AI Task Worker - Demo Script
+# Demonstration Script
 
-**Total Time**: ~3-4 minutes
+Welcome to the Autonomous AI Task Worker demo. This script is designed to walk you through the real-time UI, demonstrating the agent's capabilities across normal operation, chaotic infrastructure environments, ambiguous tasks, and independent verification.
 
-## 1. Introduction (0:30)
-- "This is an autonomous AI worker built from scratch to interact directly with internal corporate tools, purely via natural language."
-- Run `./run_demo.sh` in the terminal to spin up the Vendor Portal, the internal ERP, and the Agent UI.
-- Open the UI at `http://localhost:8000`. Show the environment config panel, demonstrating how the agent dynamically learns about available apps and credentials. 
+## 1. The Plain Task
+1. Start the server via `./run_demo.sh` and open the Web UI (`http://localhost:8000`).
+2. Ensure the chaos toggles (e.g. `slow_load`, `flaky_500`) are **off**.
+3. Select the task **"base_entry"** from the drop-down.
+4. Click **Start Run**.
+5. **Observe:** The agent seamlessly navigates the Vendor Portal, reads `INV-101`, switches to the Internal ERP, fills out the bill, and submits. The Step Cards will populate smoothly on the left panel.
 
-## 2. The Happy Path (1:00)
-- In the UI, use the default task: *"Find the latest invoice from Acme Corp, extract the amount and due date, and enter it into the ERP."*
-- Uncheck "Auto-Approve".
-- Hit **Run Task**.
-- **What to highlight**:
-  - The Live Timeline: Show how the agent outputs structured reasoning (`thought`), executes tools (`action`), and captures observations from the DOM. 
-  - The Screenshots: The agent creates snapshots mapping elements to IDs, proving it does not use a visual foundation model, but rather a compact, TPM-friendly representation.
-  - The Approval Modal: Since the ERP involves writes, a modal will pop up. Explain the safety risk-tiering. Click **Approve**.
-- Wait for completion. Show the final verifier table turning green.
+## 2. The Live Run & Chaos Recovery
+1. In the UI, enable the **"Chaos: Flaky 500s"** and **"Chaos: Random Modals"** toggles.
+2. Select **"base+chaos"** and click **Start Run**.
+3. **Observe:** The mock server will periodically inject `HTTP 500` errors and random annoying popup modals.
+4. Watch the agent's Step Cards: The `ReliabilityManager` catches transient 500 errors and automatically retries at the Playwright level (fast recovery). When the popup blocks an element, the agent receives an error, re-plans its approach, clicks the "Close" button on the modal, and continues filling the form.
 
-## 3. Chaos and Recovery (1:00)
-- Change the Chaos Flag dropdown to **Validation Error on 1st Submit**.
-- Check "Auto-Approve" (to save time).
-- Hit **Run Task**.
-- **What to highlight**:
-  - The agent will fill out the ERP form and hit submit, but the server will randomly throw a validation error.
-  - The timeline will show the agent catching the error, emitting a "Retry" thought, and correcting its action autonomously without human intervention.
-  - The Verifier panel at the end verifies the state of the DB independently of the agent's claims.
+## 3. The Ambiguity Modal
+1. Turn off the Chaos flags.
+2. Select the **"ambiguous_duplicate"** task and start the run.
+3. **Observe:** The agent attempts to enter the bill but discovers a duplicate or missing data. 
+4. The agent uses its `ask_human` tool. The execution halts, and an **Ambiguity Modal** appears in the center of your screen.
+5. Provide a clarification (e.g. "Override and create duplicate" or "Ignore the second invoice") and click **Submit**.
+6. The agent instantly resumes its sequence with the new context.
 
-## 4. Ambiguity and Clarification (1:00)
-- Change the task to: *"Find the latest invoice from Globex and enter it into the ERP."*
-- Set Vendor Name to `Globex`.
-- Hit **Run Task**.
-- **What to highlight**:
-  - Globex has duplicate/ambiguous invoices seeded in the Vendor Portal. The agent's prompt dictates that it must not guess.
-  - A "Clarification Required" modal will pop up.
-  - Show how the agent paused execution to ask the human which invoice to select. 
-  - Type `INV-AMB-1` and hit submit. The agent resumes, finds it, and enters it successfully. 
+## 4. The Verifier Panel
+1. Let the agent complete the task.
+2. Once the agent emits a `finish` action, the **Verifier Panel** appears on the right side of the screen.
+3. **Observe:** An independent rule-based engine evaluates the state of the mock SQLite database. It confirms whether the invoice was accurately recorded (e.g., correct amount, vendor, date, and zero duplicates).
+4. If a step was missed (e.g., wrong amount), the verifier fails the run and instantly feeds the error trace back to the agent for one final repair attempt.
 
-## 5. Generalization & Eval Table (0:30)
-- Change the task to a completely re-phrased instruction: *"Look up Acme Corp's most recent bill on the vendor site, grab the total and date, and punch it into the accounting system."*
-- Show that without writing a single line of new regex or code, the agent handles it. 
-- Open `eval/results.md` to show the comprehensive 60-run evaluation table across all edge cases (missing invoices, mismatched logic, chaos). Explain that the core architecture is 100% generic. 
+## 5. Results & Replay Table
+1. After completing several runs, scroll to the bottom to view the **Results Table**.
+2. It aggregates metrics: Steps taken, Tokens consumed, specific Provider/Model used, Latency, and Outcome (Success/Failed).
+3. **Replay Mode:** Click the **Replay** button next to any completed run. The UI will instantly snap back to that exact session, animating through the stored trace logs at your chosen speed.

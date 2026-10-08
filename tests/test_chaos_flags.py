@@ -15,7 +15,9 @@ async def test_chaos_flags_behavior():
         import time
         start = time.time()
         r = await client.get("http://localhost:8001/")
-        assert time.time() - start >= 2.0
+        elapsed = time.time() - start
+        assert elapsed >= 2.0
+        assert elapsed <= 8.0, f"slow_load delay {elapsed}s > 8s limit"
     chaos.set_chaos({"slow_load": False})
 
     # Test flaky_500

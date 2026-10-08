@@ -1,6 +1,5 @@
 import json
 import os
-import sys
 
 from agent.events import current_event_bus
 
@@ -24,7 +23,7 @@ class HumanInterface:
                 if key.lower() in q_lower:
                     return ans
             print(f"[TEST RESPONDER] FAILED: Unexpected question: {question}")
-            sys.exit(1)
+            raise ValueError(f"Unexpected question: {question}")
         return input("Your response: ")
         
     async def request_approval(self, action: str, args: dict, diff: str) -> bool:

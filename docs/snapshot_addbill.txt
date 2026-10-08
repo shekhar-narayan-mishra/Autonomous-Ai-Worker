@@ -1,0 +1,13 @@
+URL: http://localhost:8002/add_bill
+Title: 
+Visible Text: Add New Bill Invoice ID:  Vendor:  Amount:  Due Date:  Notes:  Submit  Back to Dashboard...
+Interactive Elements:
+[e1] input type=text name=invoice_id ""
+[e2] input type=text name=vendor ""
+[e3] input type=text name=amount ""
+[e4] input type=text name=due_date ""
+[e5] input type=text name=notes ""
+[e6] button "Submit"
+[e7] a "Back to Dashboard"
+
+Tokens: 54

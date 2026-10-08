@@ -453,7 +453,7 @@
             banner.id = "replay-banner";
             banner.style = "background: var(--warning-color); color: #000; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; font-weight: bold;";
             banner.innerHTML = `REPLAY of run ${runId} (speed ${speed}x)`;
-            document.querySelector('.right-panel').prepend(banner);
+            document.querySelector('.main-view').prepend(banner);
         } else {
             eventSource = new EventSource(`/stream/${runId}`);
         }

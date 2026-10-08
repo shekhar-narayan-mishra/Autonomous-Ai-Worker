@@ -1,112 +1,79 @@
 # Autonomous AI Task Worker
 
-An autonomous agent designed to interact with internal corporate web tools entirely through natural language. Built as an end-to-end Python web application using FastAPI, Playwright, and Groq-hosted LLMs.
+A fully autonomous browser automation agent capable of complex, cross-application workflows using Playwright and multimodal LLMs. The agent handles transient infrastructure errors, ambiguous situations, and multi-step tasks across a mock Vendor Portal and an Internal ERP system.
 
-The agent navigates an environment of mock internal tools (a Vendor Portal and an Internal ERP), extracts data, makes decisions, handles chaos (network flakiness, validation errors, expired sessions), and asks for human clarification when data is ambiguous or high-risk writes need approval.
+## 🚀 Setup and Run
 
-## 🚀 Setup & Run (One Command)
+1. **Clone and Install:**
+   ```bash
+   git clone <repository_url>
+   cd Autonomous-Ai-Worker
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   playwright install
+   ```
 
-To run the complete demo (seeds the DB, starts the mock portals, starts the FastAPI server, and opens the UI):
+2. **Configure Environment:**
+   Review `config/environment.yaml`. By default, it contains mock sandbox credentials.
+   Ensure your API keys for the chosen LLM providers (e.g. Gemini, Groq, OpenRouter) are set in your environment variables.
 
-```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+3. **Run the Demo:**
+   ```bash
+   ./run_demo.sh
+   ```
+   This spins up the local mock applications (Vendor Portal on port 8001, ERP on port 8002) and the central web UI (port 8000). The UI will automatically open in your browser.
 
-# 2. Add your Groq API key
-cp .env.example .env
-# Edit .env and set GROQ_API_KEY=your_key
-
-# 3. Start the system
-./run_demo.sh
-```
+4. **Run the E2E Live Eval:**
+   ```bash
+   python -m eval.live --tasks base --runs 1 --go
+   ```
 
 ## 🏗️ Architecture
 
 ```mermaid
 graph TD
-    UI[Web UI / Client] --> |POST /run| Server[FastAPI Server]
-    Server --> Loop[Agent Loop]
-    Loop --> |Prompt + History| LLM[Groq LLM]
-    LLM --> |JSON Action| Loop
-    Loop --> Tools[Tool Registry]
-    Tools --> Browser[Browser Subagent]
-    Tools --> Memory[Fact Memory]
-    Tools --> Human[Human Interface]
-    Browser --> |DOM interactions| MockEnvs[Vendor Portal & ERP]
-    Loop --> |Trace Events| Server
-    Server --> |SSE Stream| UI
-    Loop --> Verifier[Independent Verifier]
+    UI[Web UI / Dashboard] --> |Task Request| Server[FastAPI Server]
+    Server --> |Spawn| Agent[Autonomous Agent]
+    Agent --> |Prompt + Snapshots| LLM[LLM Router]
+    LLM --> |API Request| MultiProvider[Gemini / Groq / OpenRouter]
+    MultiProvider --> |JSON Action| Agent
+    Agent --> |Execute| Browser[Playwright Engine]
+    Browser <--> |Interact| Portal[Vendor Portal App]
+    Browser <--> |Interact| ERP[Internal ERP App]
+    Agent --> |Record| SQLite[(SQLite History)]
 ```
 
-### Short Architecture Explanation
-The system centers around an asynchronous `Agent Loop` that continuously observes its environment, thinks, and acts via an LLM. It relies on a `Tool Registry` that automatically injects available tools into the system prompt. Instead of returning raw text, the LLM outputs strictly validated JSON matching an expected schema. The server interfaces with the loop via an `EventBus`, streaming Server-Sent Events (SSE) back to the Vanilla JS UI for live timeline monitoring and interactive approvals. 
+## 🧠 Design Decisions & Reasoning
 
-## 🧠 Key Design Decisions
-
-1. **DOM Snapshots over Vision Models**: Instead of sending costly, large image screenshots to a Vision model (which eats up tokens and increases latency), the `browser` tool extracts a truncated, semantic DOM snapshot. It assigns stable `[eX]` IDs to interactive elements, allowing the LLM to easily command clicks and typing. This drastically reduces tokens, bypassing rate limits while improving accuracy.
-2. **Independent Verifiers**: The evaluation suite uses verifiers that directly query the ground-truth databases (via SQL) to compute the expected outcome at verification time. The verifiers never trust the agent's own summary or outputs.
-3. **Risk-Tiered Approvals**: Actions are tagged with risk levels (e.g., `READ` vs `WRITE`). Destructive/Write operations in the ERP require explicit human approval showing a precise "diff" of the intended action, protecting the business from autonomous hallucinations.
-4. **Generic Core**: The agent code (`agent/loop.py`) contains absolutely zero task-specific logic. All URLs, credentials, and app purposes are loaded dynamically via configuration, proving the agent can generalize to unknown tasks.
-5. **Error Classification & Chaos**: A `ReliabilityManager` categorizes errors (Transient, Wrong Approach, Blocked) and uses exponential backoff for 500s, or forces a strategy change if the agent gets caught in a loop.
-6. **Task-Keyed Test Responder**: For automated evaluations, the `HumanInterface` supports a pre-configured dictionary of expected clarification questions, ensuring the agent actually asks the *right* question before blindly proceeding.
+- **Multi-Provider Fallback:** Instead of relying on a single provider, the `LLMChainManager` seamlessly routes requests across Gemini, Groq, and OpenRouter. This mitigates the stringent limits of free-tier APIs and handles `429 Too Many Requests` intelligently by computing exact cooldown windows (e.g. `Reset-Time`).
+- **Resilient Playwright Engine:** Flaky 500s and unexpected modals are trapped by a `ReliabilityManager`. The agent distinguishes between transient infra errors (safe to retry) and wrong-approach errors (requiring LLM re-planning).
+- **Tool-Based Form Filling:** Instead of guessing coordinates or hoping for perfect accessibility trees, the Playwright agent provides precise DOM snapshots containing `id`, `placeholder`, and `type` attributes, making it mathematically certain for the LLM to output valid `fill_form` actions.
+- **Asynchronous FastAPI Backend:** Enables non-blocking SSE streams for real-time UI updates (trace logs, step latency, token consumption) without stalling the event loop.
 
 ## 🛠️ Models, APIs, and Frameworks
-- **LLM Provider**: Multi-provider free-tier chain (Gemini, Groq, OpenRouter).
-- **Model**: Automatic failover chain (e.g. Gemini Flash, Groq Llama, OpenRouter free models).
-- **Browser Automation**: Playwright (Async API, Chromium).
-- **Backend Server**: FastAPI (with Uvicorn).
-- **Frontend**: Vanilla JavaScript and CSS (No build step, Glassmorphism UI).
-- **Databases**: SQLite (for mock environments and fact stores).
-- **Data Validation**: Pydantic.
 
-## 📌 Assumptions
-- **Environment Configuration**: The agent is provided with an environment description mapping via `config/environment.yaml`. This acts as an internal corporate intranet registry, exposing the available apps, base URLs, purposes, and mock credentials to the agent, exactly how a real enterprise deployment would configure its agent's capabilities. 
-- **DOM Accessibility**: The internal corporate tools are assumed to have reasonably standard HTML structures (standard semantic tags, interactive elements) rather than entirely `<canvas>` based UIs.
+- **LLM Providers:** Google Gemini, Groq, OpenRouter (utilizing free-tier APIs).
+- **Core Automation:** Playwright (Python async API) for headless browser manipulation.
+- **Backend Server:** FastAPI and Uvicorn for handling WebSockets and SSE.
+- **Data & Config:** SQLite (for task histories/runs) and PyYAML.
+- **Testing:** Pytest, unittest.mock.
+- **Disclosure:** AI coding tools were used extensively in the creation and rapid prototyping of this repository.
 
-## ⚠️ Known Limitations
-- **Model History & Context Limits**: Because the agent stores full interaction histories, the prompt can grow large over long tasks. While the DOM is truncated, prolonged loops can still exhaust context windows. 
-- **Rate Limits (429s)**: Free/developer tiers enforce strict rate limits. The agent implements quotas, failovers, and backoff across providers to mitigate this, but heavy runs can still exhaust all providers.
+## ⚠️ Assumptions and Known Limitations
+
+- **Assumptions:** 
+  - The system assumes all target web apps are accessible on localhost via ports `8001` and `8002` as configured in `config/environment.yaml`.
+  - Credentials in `environment.yaml` are purely mock sandbox values.
+- **Known Limitations:**
+  - **Free-Tier Quotas:** Sustained runs across multiple tasks will quickly exhaust daily/minute quotas across providers, triggering the hard-coded budget guards.
+  - **Model Variance:** Smaller models may hallucinate tool arguments or loop endlessly if they lose context.
+  - **Offline Results:** The `results.md` and tests in `scripted_provider.py` are plumbing tests. Real live results (`results_live.json`) require `--go` and are heavily subject to a small N (due to quota caps).
 
 ## 🔮 What I'd Build Next
-1. **Vision Fallback**: Implement a fallback mechanism where if the semantic DOM snapshot fails to capture a complex custom widget, the agent can request a full screenshot and use a Vision API specifically for that step.
-2. **Multi-Agent Orchestration**: Break the single loop into specialized agents (e.g., a "Researcher" that just gathers the portal data, and a "Data Entry" agent that just does ERP updates) orchestrated by a supervisor.
-3. **Advanced Memory**: Persist the `MemoryStore` across runs using a Vector DB (like Chroma or Qdrant) so the agent remembers past failures on a specific website and doesn't repeat the same mistakes.
 
-## 📊 Eval Results
+1. **Self-Healing Selectors:** If a UI element ID changes, the agent should dynamically search visually and fall back on visual-text embeddings rather than just DOM labels.
+2. **Context Compression:** Long task histories consume massive token budgets. I'd add a "Memory Summarizer" step that squashes steps 1-10 into a brief paragraph.
+3. **Advanced Human-in-the-Loop:** Provide a live terminal directly in the UI where the human can assume control of the Playwright cursor during ambiguous moments, record the sequence, and return control to the agent.
+4. **Cloud Database:** Move the local SQLite trace store to a hosted Postgres instance to build a global performance dashboard.
 
-**Offline Plumbing Results** (ScriptedProvider)
-Validates agent plumbing, reliability metrics, and verifier logic without real LLM calls. See `eval/results.md`.
-
-**Live Results**
-Pending / see `eval/results_live.md`.
-
-## 📁 Repository Structure
-
-```
-├── agent/
-│   ├── loop.py             # Core autonomous loop
-│   ├── llm.py              # Groq API wrapper with JSON enforcement
-│   ├── safety.py           # Human approval and intervention interfaces
-│   ├── memory.py           # Structured fact storage
-│   ├── events.py           # EventBus for SSE streaming
-│   ├── reliability.py      # Error classification and backoff logic
-│   ├── tools/              # Tool implementations (browser, files, human)
-├── config/
-│   └── environment.yaml    # Enterprise app registry (URLs, credentials)
-├── eval/
-│   ├── runner.py           # 60-run evaluation harness
-│   └── tasks.yaml          # Task definitions & expected outcomes
-├── mock_env/
-│   ├── erp/                # Mock ERP FastAPI app
-│   ├── vendor_portal/      # Mock Vendor Portal FastAPI app
-│   ├── chaos.py            # Chaos injection flags (500s, slow loads, etc.)
-│   └── seed.py             # SQLite DB seeding
-├── ui/
-│   └── index.html          # Vanilla JS Frontend
-├── verifiers/
-│   ├── invoice_entry.py    # SQL ground-truth verifier for ERP updates
-│   └── report.py           # Verifier for mismatch reports
-├── server.py               # Main FastAPI backend
-├── run_demo.sh             # Startup script
-└── DEMO_SCRIPT.md          # Step-by-step walkthrough script
-```
