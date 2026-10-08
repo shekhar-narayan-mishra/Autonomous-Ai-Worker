@@ -298,7 +298,13 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 shot_path = None
                 
             import copy
-            trace_args = copy.deepcopy(action.args)
+            if hasattr(action.args, 'model_dump'):
+                trace_args = copy.deepcopy(action.args.model_dump())
+            elif hasattr(action.args, 'dict'):
+                trace_args = copy.deepcopy(action.args.dict())
+            else:
+                trace_args = copy.deepcopy(action.args)
+                
             if trace_args:
                 for k, v in trace_args.items():
                     if isinstance(k, str) and isinstance(v, str) and ("password" in k.lower() or "pwd" in k.lower() or "secret" in k.lower()):

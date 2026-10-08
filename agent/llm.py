@@ -697,8 +697,22 @@ async def generate_action(
                 usage["attempts"] = attempts_log
                 usage["wait_ms"] = int(total_wait * 1000)
                 current_run_metrics.record_success(entry.provider, entry.model, usage["tokens"], usage["latency_ms"])
-                return action, usage
+                if not isinstance(action, LLMResponse) and hasattr(action, 'args'):
+                    args_dict = {}
+                    if hasattr(action.args, 'model_dump'):
+                        args_dict = {k: v for k, v in action.args.model_dump().items() if v is not None}
+                    elif hasattr(action.args, 'dict'):
+                        args_dict = {k: v for k, v in action.args.dict().items() if v is not None}
+                    else:
+                        args_dict = dict(action.args)
+                    action = LLMResponse(
+                        thought=getattr(action, "thought", ""),
+                        action=getattr(action, "action", ""),
+                        args=args_dict,
+                        expected_outcome=getattr(action, "expected_outcome", "")
+                    )
 
+                return action, usage
             except ValidationError as ve:
                 last_error = str(ve)
                 attempts_log.append({
