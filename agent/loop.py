@@ -61,7 +61,10 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
     repair_attempted = False
     
     async with async_playwright() as p:
-        b = await p.chromium.launch(headless=True)
+        b = await p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
         ctx = await b.new_context()
         ctx.set_default_timeout(10000)
         ctx.set_default_navigation_timeout(15000)

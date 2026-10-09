@@ -70,18 +70,53 @@ The public UI will be available at `http://your-server-ip:8000`.
 
 Cloud PaaS providers allow zero-devops continuous deployment directly from your GitHub repository.
 
-#### 1. Deploying on Render (Docker Web Service)
-1. Go to [Render Dashboard](https://dashboard.render.com/) -> **New** -> **Web Service**.
-2. Connect your GitHub repository (`Autonomous-Ai-Worker`).
-3. Select **Docker** as the Environment / Runtime.
-4. Set the Instance Type (at least **1 GB RAM** is recommended because Playwright Chromium runs headless in the container).
-5. In **Environment Variables**, add:
-   - `GEMINI_API_KEY` = your Gemini key
-   - `GROQ_API_KEY` = your Groq key (optional fallback)
-   - `OPENROUTER_API_KEY` = your OpenRouter key (optional fallback)
-   - `PORT` = `8000`
-6. Click **Create Web Service**.
-   - Render will build the Dockerfile, execute `entrypoint.sh`, initialize the mock databases, start ports 8001 & 8002 in the background, and expose port 8000 publicly.
+#### 1. Deploying on Render (Complete Guide)
+
+Render is one of the easiest ways to host this application because it natively supports Docker and provides automatic HTTPS, continuous deployment from GitHub, and free/starter tier options.
+
+##### **Do you need to deploy 3 separate services on Render?**
+**No.** Render will run everything inside **one single Web Service**:
+- **Public Port ($PORT / 8000)**: Render routes external HTTPS traffic to the FastAPI server and UI dashboard.
+- **Internal Ports (8001 & 8002)**: The Vendor Portal and Internal ERP run concurrently inside the container on `127.0.0.1`. The agent's headless Chromium browser accesses them locally at zero latency without exposing internal mock databases to the public web.
+
+---
+
+##### **Method A: Quick Dashboard Deployment (Recommended)**
+1. **Push your code to GitHub** (make sure your repo has the `Dockerfile` and `entrypoint.sh`).
+2. Log in to [Render Dashboard](https://dashboard.render.com/).
+3. Click the **New +** button in the top right and select **Web Service**.
+4. Choose **Build and deploy from a Git repository** and connect your `Autonomous-Ai-Worker` repo.
+5. Configure the service settings:
+   - **Name**: `autonomous-ai-worker` (or your preferred name)
+   - **Region**: Choose the closest region (e.g., Oregon, Ohio, or Frankfurt)
+   - **Runtime / Environment**: Select **Docker** (Render will automatically detect the [Dockerfile](file:///Users/shekharnarayanmishra/Desktop/Autonomus%20AI/Dockerfile))
+   - **Branch**: `main`
+   - **Instance Type**:
+     - *Free Plan (512 MB RAM)*: Works for sequential single-run tasks with Chromium flags `--no-sandbox --disable-dev-shm-usage`.
+     - *Starter Plan (1 GB RAM, $7/mo)*: Highly recommended for instant response and smooth headless Chromium multitasking.
+6. Scroll down to **Environment Variables** and add your secrets:
+   - `GEMINI_API_KEY`: Your Google Gemini API key
+   - `GROQ_API_KEY`: *(Optional)* Your Groq key for fast failover/reasoning
+   - `OPENROUTER_API_KEY`: *(Optional)* Your OpenRouter key
+   - `PYTHONUNBUFFERED`: `1`
+7. Click **Deploy Web Service**.
+8. Render will build the container, install Playwright with Chromium, run `seed.py`, and launch all three internal servers.
+9. Once the build finishes, open the provided URL (e.g. `https://autonomous-ai-worker.onrender.com`).
+
+---
+
+##### **Method B: Infrastructure-as-Code via Blueprint (`render.yaml`)**
+This repository includes a preconfigured [render.yaml](file:///Users/shekharnarayanmishra/Desktop/Autonomus%20AI/render.yaml) file:
+1. In Render Dashboard, click **New +** -> **Blueprint**.
+2. Connect your `Autonomous-Ai-Worker` repository.
+3. Render reads `render.yaml` and auto-fills all service configurations.
+4. Input your `GEMINI_API_KEY` when prompted and click **Apply**.
+
+---
+
+##### **Render Free Tier Tips & Caveats**
+- **Cold Starts**: Render's free tier spins down after 15 minutes of inactivity. When visiting the URL after inactivity, the first page load may take ~45–60 seconds while the container boots.
+- **Database Persistence**: The mock databases (`data.db` and `erp.db`) are SQLite files. On ephemeral free instances, they reset on each deployment or restart. `seed.py` automatically initializes clean, seeded invoice data on every boot, so the agent will always have fresh data to test against!
 
 #### 2. Deploying on Railway
 1. Click **New Project** -> **Deploy from GitHub repo**.

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: autonomous-ai-worker
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
