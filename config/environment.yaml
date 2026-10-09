@@ -1,13 +1,13 @@
 apps:
   - name: "Vendor Portal"
-    base_url: "http://localhost:8001"
+    base_url: "https://vendor-portal-xr6w.onrender.com"
     purpose: "View and search vendor invoices"
     credentials:
       username: "admin"
       password: "password123"
     tools_to_use: ["browser"]
   - name: "Internal ERP"
-    base_url: "http://localhost:8002"
+    base_url: "https://erp-portal-4j6b.onrender.com"
     purpose: "Data entry for accounting, entering invoice amounts and due dates"
     credentials:
       username: "admin"

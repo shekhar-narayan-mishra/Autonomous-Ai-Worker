@@ -22,7 +22,7 @@ A fully autonomous browser automation agent capable of complex, cross-applicatio
    ```bash
    ./run_demo.sh
    ```
-   This spins up the local mock applications (Vendor Portal on port 8001, ERP on port 8002) and the central web UI (port 8000). The UI will automatically open in your browser.
+   This spins up the central web UI (port 8000). The UI will automatically open in your browser and interact with the remote mock applications.
 
 4. **Run the E2E Live Eval:**
    ```bash
@@ -63,7 +63,7 @@ graph TD
 ## ⚠️ Assumptions and Known Limitations
 
 - **Assumptions:** 
-  - The system assumes all target web apps are accessible on localhost via ports `8001` and `8002` as configured in `config/environment.yaml`.
+  - The system assumes all target web apps are accessible at their hosted URLs as configured in `config/environment.yaml`.
   - Credentials in `environment.yaml` are purely mock sandbox values.
 - **Known Limitations:**
   - **Free-Tier Quotas:** Sustained runs across multiple tasks will quickly exhaust daily/minute quotas across providers, triggering the hard-coded budget guards.
