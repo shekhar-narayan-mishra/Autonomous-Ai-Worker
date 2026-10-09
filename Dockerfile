@@ -1,26 +1,19 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11-slim
-
-# Install system dependencies needed for Playwright Chromium
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    procps \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
 
 WORKDIR /app
 
-# Copy dependency definition and install Python packages
+# Copy requirements and install dependencies
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install Playwright browser and system OS libraries
-RUN playwright install --with-deps chromium
+# Ensure Chromium browser is ready
+RUN playwright install chromium
 
 # Copy application source code
 COPY . ./
 
-# Seed mock databases during build or startup
+# Seed mock databases during build
 RUN python mock_env/seed.py
 
 # Ensure start script is executable
