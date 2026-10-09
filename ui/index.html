@@ -840,6 +840,21 @@
         // Load Env
         fetch('/env').then(r => r.json()).then(data => {
             document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
+            
+            // Add manual testing links
+            if (data && data.apps && Array.isArray(data.apps)) {
+                let html = '<div style="margin-top:16px; font-size:13px; color:var(--text-secondary); border-top: 1px solid var(--border-subtle); padding-top: 16px;">';
+                html += '<div style="margin-bottom:12px; font-weight:600; color:var(--text);">Test Portals Manually</div>';
+                html += '<div style="display:flex; flex-direction:column; gap:10px;">';
+                data.apps.forEach(app => {
+                    html += `<a href="${app.base_url}" target="_blank" style="color:var(--accent); text-decoration:none; display:flex; align-items:center; gap:8px; padding: 8px; background-color: var(--bg-deep); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); transition: background-color 0.2s;">
+                                <span>🔗</span> 
+                                <span style="font-weight:500;">${app.name}</span>
+                             </a>`;
+                });
+                html += '</div></div>';
+                document.getElementById('env-content').insertAdjacentHTML('beforeend', html);
+            }
         });
 
         function toggleEnv() {

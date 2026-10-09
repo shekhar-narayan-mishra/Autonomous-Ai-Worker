@@ -56,8 +56,9 @@ async def start_run(req: RunRequest):
     async def agent_task():
         try:
             import subprocess
+            import sys
             if req.reset_env:
-                subprocess.run(["venv/bin/python", "mock_env/seed.py", req.seed_profile], check=True)
+                subprocess.run([sys.executable, "mock_env/seed.py", req.seed_profile], check=True)
             
             task_args = {"verifier": "invoice_entry", "vendor_name": req.vendor_name}
             res = await run_loop(req.task, task_args=task_args, event_bus=bus, run_id=run_id)
