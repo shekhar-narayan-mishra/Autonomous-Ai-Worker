@@ -357,6 +357,7 @@ class ChainEntry:
         self.exhaustion_reason = ""
         self.exhaustion_expires_at = 0.0
         self.last_call_timestamp = 0.0
+        self.consecutive_slow_calls = 0
 
     @property
     def key(self) -> str:
@@ -629,6 +630,7 @@ async def generate_action(
         schema = get_dynamic_response_schema()
 
     total_wait = 0.0
+    wait_reasons = set()
 
     while True:
         entry = mgr.get_active_entry()
@@ -674,6 +676,7 @@ async def generate_action(
             if wait_sec > 0:
                 await asyncio.sleep(wait_sec)
                 total_wait += wait_sec
+                wait_reasons.add("pacing")
                 
             entry.record_call()
 
@@ -696,6 +699,7 @@ async def generate_action(
                 
                 usage["attempts"] = attempts_log
                 usage["wait_ms"] = int(total_wait * 1000)
+                usage["wait_reasons"] = list(wait_reasons)
                 current_run_metrics.record_success(entry.provider, entry.model, usage["tokens"], usage["latency_ms"])
                 if not isinstance(action, LLMResponse) and hasattr(action, 'args'):
                     args_dict = {}
@@ -711,6 +715,15 @@ async def generate_action(
                         args=args_dict,
                         expected_outcome=getattr(action, "expected_outcome", "")
                     )
+
+                if usage.get("latency_ms", 0) > 10000:
+                    entry.consecutive_slow_calls += 1
+                else:
+                    entry.consecutive_slow_calls = 0
+
+                if entry.consecutive_slow_calls >= 2:
+                    logger.warning(f"[MultiProvider] Entry '{entry.key}' exceeded 10s latency on 2 consecutive calls. Failing over for next steps.")
+                    mgr.mark_exhausted(entry, "per_minute", "Latency > 10s on 2 consecutive steps", retry_after=120)
 
                 return action, usage
             except ValidationError as ve:
@@ -764,6 +777,7 @@ async def generate_action(
                             logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {backoff:.1f}s before retry...")
                             await asyncio.sleep(backoff)
                             total_wait += backoff
+                            wait_reasons.add("429")
                             last_error = str(e)
                             continue
                         else:

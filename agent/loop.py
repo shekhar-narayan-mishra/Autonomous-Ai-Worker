@@ -24,7 +24,7 @@ Tools:
 {tool_registry}
 
 Rules:
-- Before leaving a page, save_fact every value you'll need later (ids, amounts, dates, names).
+- Before leaving a page, save_fact every value you'll need later (ids, amounts, dates, names). Save all needed facts in one save_fact call.
 - Check Known Facts before revisiting a page. If already logged in to an app, don't log in again.
 - Ask human ONLY if ambiguous, critical info missing, or blocked.
 - Do NOT finish until task is submitted in ERP or confirmed missing.
@@ -32,10 +32,10 @@ Rules:
 - To sign in to an app, use browser login with the app name.
 
 Example:
-{"thought": "Extracting total", "action": "save_fact", "args": {"key": "invoice_total", "value": "100.00"}, "expected_outcome": "saved"}
+{"thought": "Extracting facts", "action": "save_fact", "args": {"facts": {"invoice_total": "100.00", "id": "INV-101"}}, "expected_outcome": "saved"}
 """
 
-async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event_bus: EventBus = None, run_id: str = None):
+async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event_bus: EventBus = None, run_id: str = None):
     if event_bus:
         current_event_bus.set(event_bus)
         
@@ -55,7 +55,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
     save_fact_tool.store = memory
     recall_tool.store = memory
     
-    rm = ReliabilityManager(max_steps=max_steps, max_wall_time=300)
+    rm = ReliabilityManager(max_steps=max_steps, max_wall_time=600)
     
     history = []
     repair_attempted = False
@@ -71,6 +71,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
         step = 1
         no_progress_steps = 0
         last_obs_hash = None
+        last_obs = ""
         nudge_count = 0
         done_nudge_sent = False
         while step <= max_steps:
@@ -93,7 +94,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     
                     app_line = f"{name} ({url})"
                     if creds:
-                        app_line += " login: credentials: available via login"
+                        app_line += f" - sign in with: browser login app=\"{name}\""
                     if purpose:
                         app_line += f" purpose: {purpose}"
                     
@@ -236,6 +237,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                 nudge_count = 0
                 
             last_obs_hash = obs_hash
+            last_obs = result_obs
             
             if no_progress_steps >= 2:
                 if nudge_count >= 1:
@@ -338,6 +340,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
                     "observation": result_obs,
                     "latency_ms": metadata["latency_ms"],
                     "wait_ms": metadata.get("wait_ms", 0),
+                    "wait_reasons": metadata.get("wait_reasons", []),
                     "tool_ms": tool_ms,
                     "provider": metadata.get("provider", "unknown"),
                     "model": metadata.get("model", "unknown"),
@@ -411,7 +414,13 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 15, event
             step += 1
             
         await b.close()
-        err_dict = {"passed": False, "status": "MAX_STEPS_REACHED", "checks": [], "evidence": {}}
+        err_dict = {
+            "passed": False, 
+            "status": "MAX_STEPS_REACHED", 
+            "checks": [], 
+            "evidence": {}, 
+            "report": f"Facts: {memory.format_for_prompt(100)}\nLast Obs: {last_obs}"
+        }
         if event_bus:
             await event_bus.emit("verifier_result", err_dict)
         return err_dict

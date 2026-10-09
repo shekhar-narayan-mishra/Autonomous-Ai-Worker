@@ -918,10 +918,12 @@
                     if (event.data.screenshot_url) {
                         document.getElementById('screenshot-container').innerHTML = 
                             `<img src="${event.data.screenshot_url}?t=${Date.now()}" alt="Browser view">`;
-                    }
-                    if (event.data.action && event.data.action.includes('browser.')) {
-                        // Attempt to extract URL or contextual hint if present, else just generic status
-                        document.getElementById('browser-url').textContent = `Agent executing: ${event.data.action}`;
+                        const urlMatch = event.data.observation.match(/URL:\s*(http\S+)/);
+                        if (urlMatch) {
+                            document.getElementById('browser-url').textContent = urlMatch[1];
+                        } else {
+                            document.getElementById('browser-url').textContent = "Browser Active";
+                        }
                     }
                 } 
                 else if (event.type === 'replay_meta') {
@@ -958,9 +960,10 @@
             const tl = document.getElementById('timeline');
             
             let waitNote = '';
-            if (data.wait_ms > 3000) {
-                const waitedS = Math.round(data.wait_ms / 1000);
-                waitNote = `<span class="wait-note" title="waited ${waitedS}s on rate limits">waited ${waitedS}s</span>`;
+            if (data.wait_reasons && data.wait_reasons.length > 0) {
+                const waitedS = Math.max(1, Math.round(data.wait_ms / 1000));
+                const reasons = data.wait_reasons.join(" + ");
+                waitNote = `<span class="wait-note" title="waited ${waitedS}s on rate limits">waited ${waitedS}s (${reasons})</span>`;
             }
 
             let markerClass = "status-active";

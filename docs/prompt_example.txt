@@ -1,3 +1,3 @@
 Available environment:
-Vendor Portal (http://localhost:8001) login: credentials: available via login purpose: View and search vendor invoices
-Internal ERP (http://localhost:8002) login: credentials: available via login purpose: Data entry for accounting, entering invoice amounts and due dates
+Vendor Portal (http://localhost:8001) - sign in with: browser login app="Vendor Portal"
+Internal ERP (http://localhost:8002) - sign in with: browser login app="Internal ERP"

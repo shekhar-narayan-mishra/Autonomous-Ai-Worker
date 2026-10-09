@@ -118,18 +118,57 @@ class BrowserTool(BaseTool):
             elif command == "extract_text":
                 return ToolResult(ok=True, observation=(await page.evaluate("document.body.innerText"))[:2000])
             elif command == "login":
+                from urllib.parse import urlparse
+
                 import yaml
                 with open("config/environment.yaml") as f:
                     env_dict = yaml.safe_load(f)
+                
                 creds = None
+                
+                def normalize(s):
+                    if not s: return ""
+                    return s.lower().replace(" ", "").replace("_", "").replace("-", "")
+                
+                def get_origin(u):
+                    if not u: return ""
+                    if not u.startswith("http"): u = "http://" + u
+                    try:
+                        p = urlparse(u)
+                        return f"{p.scheme}://{p.netloc}"
+                    except:
+                        return ""
+                
+                valid_apps = [a.get("name") for a in env_dict.get("apps", []) if a.get("name")]
+                valid_apps_str = ", ".join(f'"{name}"' for name in valid_apps)
+                
+                target_app_norm = normalize(app)
+                target_origin = get_origin(app) if app else None
+                current_origin = get_origin(page.url) if page.url else None
+                
+                # a) normalized name
                 for a in env_dict.get("apps", []):
-                    app_name = a.get("name", "").lower().replace(" ", "").replace("_", "")
-                    target_app = (app or "").lower().replace(" ", "").replace("_", "")
-                    if app_name == target_app:
+                    if target_app_norm and normalize(a.get("name")) == target_app_norm:
                         creds = a.get("credentials")
                         break
+                
+                # b) URL or host:port string
+                if not creds and target_origin:
+                    for a in env_dict.get("apps", []):
+                        if get_origin(a.get("base_url")) == target_origin:
+                            creds = a.get("credentials")
+                            break
+                            
+                # c) if omitted or unmatched, current page origin
+                if not creds and current_origin:
+                    for a in env_dict.get("apps", []):
+                        if get_origin(a.get("base_url")) == current_origin:
+                            creds = a.get("credentials")
+                            break
+
                 if not creds:
-                    return ToolResult(ok=False, observation=f"No credentials found for app {app}")
+                    app_display = app if app else "None"
+                    return ToolResult(ok=False, observation=f'Unknown app "{app_display}". Valid apps: {valid_apps_str}. Use browser login with one of these names.')
                 
                 await page.locator("input[type='text'], input[type='email'], input:not([type])").first.fill(creds.get("username", ""))
                 await page.locator("input[type='password']").first.fill(creds.get("password", ""))

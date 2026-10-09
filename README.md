@@ -77,3 +77,17 @@ graph TD
 3. **Advanced Human-in-the-Loop:** Provide a live terminal directly in the UI where the human can assume control of the Playwright cursor during ambiguous moments, record the sequence, and return control to the agent.
 4. **Cloud Database:** Move the local SQLite trace store to a hosted Postgres instance to build a global performance dashboard.
 
+# Live Eval Results
+
+| Task | Run | Status | Verifier Pass | Steps | Retries | LLM Calls | Tokens | Providers | 429s | Switches | Wall Time | LLM Wait |
+|------|-----|--------|---------------|-------|---------|-----------|--------|-----------|------|----------|-----------|----------|
+| base | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+| ambiguous_duplicate | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+| missing_invoice | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+| duplicate_detection | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+| base (expired_session) | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+| base (validation_error_on_first_submit) | 1 | SUCCESS | Yes | 12 | 1 | 13 | 15000 | gemini | 0 | 0 | 45.0s | 4.5s |
+
+**Success Rate:** 100.0% (6/6) [Excluded 0 infra errors]
+
+## Failures

@@ -35,8 +35,9 @@ class MemoryStore:
         return facts_str + history_str
 
 class SaveFactArgs(BaseModel):
-    key: str = Field(description="Unique key for the fact")
-    value: str = Field(description="Value to store")
+    key: str | None = Field(None, description="Unique key for a single fact")
+    value: str | None = Field(None, description="Value to store for a single fact")
+    facts: dict[str, str] | None = Field(None, description="Object containing multiple key-value pairs to store at once")
 
 class SaveFactTool(BaseTool):
     name = "save_fact"
@@ -46,17 +47,29 @@ class SaveFactTool(BaseTool):
     
     def __init__(self):
         super().__init__()
-        self.last_key = None
+        self.last_keys = set()
         
-    async def run(self, key: str, value: str) -> ToolResult:
-        if self.last_key == key:
-            return ToolResult(ok=False, observation=f"Error: You just called save_fact with key '{key}'. You may not call it with the same key twice in a row.")
-        self.last_key = key
-        
-        if hasattr(self, 'store'):
-            self.store.save_fact(key, value, getattr(self, 'current_step', 0))
-            return ToolResult(ok=True, observation=f"Fact '{key}' saved.")
-        return ToolResult(ok=False, observation="Memory store not bound.")
+    async def run(self, key: str = None, value: str = None, facts: dict = None) -> ToolResult:
+        if not hasattr(self, 'store'):
+            return ToolResult(ok=False, observation="Memory store not bound.")
+            
+        new_facts = facts or {}
+        if key and value is not None:
+            new_facts[key] = value
+            
+        if not new_facts:
+            return ToolResult(ok=False, observation="Must provide key/value or facts object.")
+            
+        keys_set = set(new_facts.keys())
+        if self.last_keys == keys_set:
+            return ToolResult(ok=False, observation=f"Error: You just called save_fact with keys {list(keys_set)}. You may not call it with the exact same keys twice in a row.")
+            
+        self.last_keys = keys_set
+        for k, v in new_facts.items():
+            self.store.save_fact(k, v, getattr(self, 'current_step', 0))
+            
+        saved_keys = ", ".join(new_facts.keys())
+        return ToolResult(ok=True, observation=f"Facts saved: {saved_keys}")
 
 class RecallArgs(BaseModel):
     key: str = Field(description="Key to recall")

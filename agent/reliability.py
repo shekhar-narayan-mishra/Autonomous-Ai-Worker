@@ -9,7 +9,7 @@ class ErrorClassification(str, Enum):
     SUCCESS = "success"
 
 class ReliabilityManager:
-    def __init__(self, max_steps=20, max_wall_time=300):
+    def __init__(self, max_steps=30, max_wall_time=600):
         self.max_steps = max_steps
         self.max_wall_time = max_wall_time
         self.start_time = time.time()
