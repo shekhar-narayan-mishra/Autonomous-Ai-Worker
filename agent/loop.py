@@ -77,10 +77,12 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
         last_obs = ""
         nudge_count = 0
         done_nudge_sent = False
+        loop_error = None
         while step <= max_steps:
             try:
                 rm.check_budgets(step)
             except Exception as e:
+                loop_error = f"Budget/Abort: {e}"
                 print(f"Aborting: {e}")
                 break
                 
@@ -143,6 +145,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
             try:
                 action, metadata = await generate_action(prompt, user_messages)
             except Exception as e:
+                loop_error = f"LLM Error: {e}"
                 print(f"LLM Error: {e}")
                 break
                 
@@ -428,12 +431,20 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
             step += 1
             
         await b.close()
+        
+        if loop_error:
+            status = "ERROR"
+            report = f"Agent failed unexpectedly: {loop_error}\nLast Obs: {last_obs}"
+        else:
+            status = "MAX_STEPS_REACHED"
+            report = f"Facts: {memory.format_for_prompt(100)}\nLast Obs: {last_obs}"
+            
         err_dict = {
             "passed": False, 
-            "status": "MAX_STEPS_REACHED", 
+            "status": status, 
             "checks": [], 
             "evidence": {}, 
-            "report": f"Facts: {memory.format_for_prompt(100)}\nLast Obs: {last_obs}"
+            "report": report
         }
         if event_bus:
             await event_bus.emit("verifier_result", err_dict)

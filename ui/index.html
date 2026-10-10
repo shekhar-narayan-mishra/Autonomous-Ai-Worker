@@ -884,6 +884,8 @@
             document.getElementById('timeline').innerHTML = "";
             document.getElementById('final-panel').style.display = "none";
             document.getElementById('final-empty-state').style.display = "block";
+            document.getElementById('final-summary').innerHTML = "";
+            document.querySelector('#verifier-table tbody').innerHTML = "";
             document.getElementById('screenshot-container').innerHTML = `<div class="empty-state">Waiting for observation...</div>`;
             document.getElementById('browser-url').textContent = "Waiting for connection...";
             document.getElementById('replay-banner-container').innerHTML = "";
