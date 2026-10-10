@@ -186,7 +186,7 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
                             for app in env_dict.get("apps", []):
                                 if app.get("name", "").lower() in q or app.get("base_url", "").lower() in q:
                                     result_obs = f"Credentials are in Available environment: {app['name']}"
-                                    ok = True
+                                    ok = False
                                     bypassed = True
                                     break
                     if not bypassed:
@@ -207,19 +207,22 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
                         except Exception as e:
                             err_class = rm.classify_error(e)
                             if err_class == ErrorClassification.TRANSIENT:
-                                retry_reason = "Transient error detected. Retrying..."
-                                print("Transient error detected. Retrying...")
-                                await asyncio.sleep(2)
-                                try:
-                                    res = await asyncio.wait_for(tool.run(**action.args), timeout=20.0)
-                                    result_obs = res.observation
-                                    ok = res.ok
-                                except asyncio.TimeoutError:
-                                    result_obs = f"Timeout: tool '{action.action}' exceeded 20s limit."
-                                    ok = False
-                                except Exception as e2:
-                                    result_obs = f"Transient error persisted: {e2}"
-                                    ok = False
+                                ok = False
+                                result_obs = str(e)
+                                for attempt in range(1, 4):
+                                    retry_reason = f"Transient error (HTTP 5xx/Timeout). Retrying {attempt}/3..."
+                                    print(retry_reason)
+                                    await asyncio.sleep(2 ** attempt)
+                                    try:
+                                        res = await asyncio.wait_for(tool.run(**action.args), timeout=20.0)
+                                        result_obs = res.observation
+                                        ok = res.ok
+                                        if ok:
+                                            break
+                                    except asyncio.TimeoutError:
+                                        result_obs = f"Timeout on retry {attempt}: tool '{action.action}' exceeded 20s limit."
+                                    except Exception as e2:
+                                        result_obs = f"Transient error persisted on retry {attempt}: {e2}"
                             else:
                                 result_obs = str(e)
                                 ok = False
@@ -231,6 +234,14 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
             
             is_no_progress = False
             if action.action in ["save_fact", "recall"] or obs_hash == last_obs_hash:
+                is_no_progress = True
+                
+            # Treat bypassed ask_human as no progress (it didn't take any action)
+            if action.action == "ask_human" and bypassed:
+                is_no_progress = True
+
+            # Treat failed tool execution as no progress
+            if not ok:
                 is_no_progress = True
                 
             if is_no_progress:

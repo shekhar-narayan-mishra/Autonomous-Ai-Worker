@@ -925,6 +925,20 @@
                 eventSource = new EventSource(`/stream/${runId}`);
             }
             
+            eventSource.onerror = (err) => {
+                console.error("SSE Error:", err);
+                eventSource.close();
+                runBtn.disabled = false;
+                runBtn.innerHTML = "<span>▶</span> Run Task";
+                document.getElementById('browser-url').textContent = "Connection lost (502 or server down).";
+                showFinal({
+                    status: "CONNECTION_LOST",
+                    report: "The backend server disconnected unexpectedly. This may be due to a 502 Bad Gateway or server crash.",
+                    passed: false,
+                    checks: []
+                });
+            };
+            
             eventSource.onmessage = (e) => {
                 const event = JSON.parse(e.data);
                 

@@ -38,6 +38,10 @@ async def chaos_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request, error: str = ""):
     html = f"""

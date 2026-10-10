@@ -20,8 +20,26 @@ class FakeLLM:
         
         return LLMResponse(**action_dict), {"tokens": {"prompt": 10, "completion": 10}, "latency_ms": 100}
 
+@pytest.fixture
+def mock_env(monkeypatch):
+    import yaml
+    env_data = {
+        "apps": [
+            {"name": "Vendor Portal", "base_url": "http://localhost:8001", "purpose": "View and search vendor invoices", "credentials": {"username": "admin", "password": "password123"}, "tools_to_use": ["browser"]},
+            {"name": "Internal ERP", "base_url": "http://localhost:8002", "purpose": "Data entry", "credentials": {"username": "admin", "password": "admin"}, "tools_to_use": ["browser"]}
+        ]
+    }
+    import builtins
+    orig_open = builtins.open
+    def mock_open(path, *args, **kwargs):
+        if "environment.yaml" in str(path):
+            from io import StringIO
+            return StringIO(yaml.dump(env_data))
+        return orig_open(path, *args, **kwargs)
+    monkeypatch.setattr("builtins.open", mock_open)
+
 @pytest.mark.asyncio
-async def test_full_scripted_e2e_pass(monkeypatch, capsys):
+async def test_full_scripted_e2e_pass(mock_env, monkeypatch, capsys):
     print("\\n[plumbing test, not agent eval] E2E Pass")
     seed.seed_vendor_portal("base")
     seed.seed_erp("base") # Ensure DB is seeded properly
@@ -52,7 +70,7 @@ async def test_full_scripted_e2e_pass(monkeypatch, capsys):
         print(f"{step.get('step', '-')} | {step.get('action')} | {step.get('ok')} | {step.get('tool_ms', 0)}")
 
 @pytest.mark.asyncio
-async def test_full_scripted_e2e_wrong_amount_repair(monkeypatch, capsys):
+async def test_full_scripted_e2e_wrong_amount_repair(mock_env, monkeypatch, capsys):
     print("\\n[plumbing test, not agent eval] E2E Wrong Amount -> Repair")
     seed.seed_vendor_portal("base")
     seed.seed_erp("base")
@@ -91,7 +109,7 @@ async def test_full_scripted_e2e_wrong_amount_repair(monkeypatch, capsys):
     assert res["status"] == "SUCCESS_AFTER_REPAIR", f"Expected SUCCESS_AFTER_REPAIR after repair, got {res.get('status')}"
 
 @pytest.mark.asyncio
-async def test_full_scripted_e2e_skip_portal(monkeypatch, capsys):
+async def test_full_scripted_e2e_skip_portal(mock_env, monkeypatch, capsys):
     print("\\n[plumbing test, not agent eval] E2E Skip Portal")
     seed.seed_vendor_portal("base")
     seed.seed_erp("base")

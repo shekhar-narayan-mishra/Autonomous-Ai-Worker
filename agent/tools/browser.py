@@ -82,12 +82,14 @@ class BrowserTool(BaseTool):
         try:
             feedback = ""
             if command == "goto":
-                await page.goto(url)
-                await page.wait_for_load_state("networkidle")
+                resp = await page.goto(url)
+                if resp and resp.status >= 500:
+                    raise Exception(f"HTTP {resp.status} Service Unavailable on navigation to {url}.")
+                await page.wait_for_load_state("domcontentloaded")
             elif command == "click":
                 selector = f"[data-aid='{selector_id}']"
                 await page.click(selector, timeout=5000)
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("domcontentloaded")
             elif command == "type":
                 selector = f"[data-aid='{selector_id}']"
                 await page.fill(selector, text, timeout=5000)
@@ -97,7 +99,7 @@ class BrowserTool(BaseTool):
                 await page.select_option(selector, label=text, timeout=5000)
             elif command == "press":
                 await page.keyboard.press(key)
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_load_state("domcontentloaded")
             elif command == "wait":
                 await asyncio.sleep(2)
             elif command == "fill_form":
@@ -112,7 +114,7 @@ class BrowserTool(BaseTool):
                     feedback = " (" + ", ".join(feedback_parts) + ")"
                 if submit:
                     await page.click(f"[data-aid='{submit}']", timeout=5000)
-                    await page.wait_for_load_state("networkidle")
+                    await page.wait_for_load_state("domcontentloaded")
             elif command == "snapshot":
                 pass
             elif command == "extract_text":
@@ -147,47 +149,77 @@ class BrowserTool(BaseTool):
                 current_origin = get_origin(page.url) if page.url else None
                 
                 # a) normalized name
+                target_app_config = None
                 for a in env_dict.get("apps", []):
                     if target_app_norm and normalize(a.get("name")) == target_app_norm:
-                        creds = a.get("credentials")
+                        target_app_config = a
                         break
                 
                 # b) URL or host:port string
-                if not creds and target_origin:
+                if not target_app_config and target_origin:
                     for a in env_dict.get("apps", []):
                         if get_origin(a.get("base_url")) == target_origin:
-                            creds = a.get("credentials")
+                            target_app_config = a
                             break
                             
                 # c) if omitted or unmatched, current page origin
-                if not creds and current_origin:
+                if not target_app_config and current_origin:
                     for a in env_dict.get("apps", []):
                         if get_origin(a.get("base_url")) == current_origin:
-                            creds = a.get("credentials")
+                            target_app_config = a
                             break
 
-                if not creds:
+                if not target_app_config:
                     app_display = app if app else "None"
                     return ToolResult(ok=False, observation=f'Unknown app "{app_display}". Valid apps: {valid_apps_str}. Use browser login with one of these names.')
                 
+                creds = target_app_config.get("credentials", {})
+                base_url = target_app_config.get("base_url")
+
+                # target-aware navigation
+                if base_url:
+                    t_orig = get_origin(base_url)
+                    c_orig = get_origin(page.url) if page.url else ""
+                    if c_orig != t_orig or page.url == "about:blank":
+                        resp = await page.goto(base_url)
+                        if resp and resp.status >= 500:
+                            raise Exception(f"HTTP {resp.status} Service Unavailable on navigation to {base_url}.")
+                        await page.wait_for_load_state("domcontentloaded")
+
+                # state-aware checks
+                password_inputs = await page.locator("input[type='password']").count()
+                if password_inputs == 0:
+                    snap = await BrowserContext.snapshot()
+                    return ToolResult(ok=True, observation=f"Appears already authenticated or no login form found. Current URL: {page.url}\nPage state:\n{snap}")
+
                 await page.locator("input[type='text'], input[type='email'], input:not([type])").first.fill(creds.get("username", ""))
                 await page.locator("input[type='password']").first.fill(creds.get("password", ""))
                 await page.locator("button[type='submit'], input[type='submit'], button").first.click()
-                await page.wait_for_load_state("networkidle")
-                await asyncio.sleep(2)
+                await page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(1)
+                
                 err_text = await page.evaluate("""() => {
                     const el = document.querySelector('.error, .alert, [role="alert"], [data-error]');
                     return el ? el.innerText : '';
                 }""")
+                
+                snap = await BrowserContext.snapshot()
                 if err_text:
-                    return ToolResult(ok=False, observation=f"Login failed for {app}: {err_text}. Retry with browser login app={app}")
-                return ToolResult(ok=True, observation=f"Logged in. Resulting URL: {page.url}")
+                    return ToolResult(ok=False, observation=f"Login failed for {app}: {err_text}. URL: {page.url}\nPage state:\n{snap}")
+                return ToolResult(ok=True, observation=f"Logged in successfully. Resulting URL: {page.url}\nPage state:\n{snap}")
             else:
                 return ToolResult(ok=False, observation=f"Unknown command: {command}")
             
             snap = await BrowserContext.snapshot()
             return ToolResult(ok=True, observation=snap + feedback)
         except Exception as e:
-            return ToolResult(ok=False, observation=str(e), error=str(e), error_type=type(e).__name__)
+            err_obs = str(e)
+            try:
+                if BrowserContext.page:
+                    snap = await BrowserContext.snapshot()
+                    err_obs += f"\nPage state after error:\n{snap}"
+            except Exception:
+                pass
+            return ToolResult(ok=False, observation=err_obs, error=str(e), error_type=type(e).__name__)
 
 registry.register(BrowserTool())
