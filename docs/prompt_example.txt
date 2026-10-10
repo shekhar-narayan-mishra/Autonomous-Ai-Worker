@@ -1,3 +1,3 @@
 Available environment:
-Vendor Portal (http://localhost:8001) - sign in with: browser login app="Vendor Portal" purpose: View
+Vendor Portal (http://localhost:8001) - sign in with: browser login app="Vendor Portal" purpose: View and search vendor invoices
 Internal ERP (http://localhost:8002) - sign in with: browser login app="Internal ERP" purpose: Data entry

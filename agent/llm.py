@@ -401,9 +401,22 @@ async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel])
         else:
             contents.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
 
+    schema_dict = schema.model_json_schema()
+    def remove_additional_properties(d):
+        if isinstance(d, dict):
+            if "additionalProperties" in d:
+                del d["additionalProperties"]
+            for k, v in d.items():
+                remove_additional_properties(v)
+        elif isinstance(d, list):
+            for item in d:
+                remove_additional_properties(item)
+        return d
+    schema_dict = remove_additional_properties(schema_dict)
+
     gen_config = types.GenerateContentConfig(
         response_mime_type="application/json",
-        response_schema=schema,
+        response_schema=schema_dict,
         system_instruction=system_instruction if system_instruction else None
     )
 
