@@ -663,11 +663,20 @@ async def generate_action(
                 else:
                     current_run_metrics.status = "llm_quota_exhausted"
                     current_run_metrics.finalize()
-                    raise LLMQuotaExhaustedError(f"All configurations exhausted. Shortest cooldown is {wait_time:.1f}s (exceeds limit).")
+                    diag = ["All configurations exhausted. Provider statuses:"]
+                    for ex_entry in mgr.entries:
+                        diag.append(f" - {ex_entry.provider}/{ex_entry.model}: {ex_entry.exhaustion_reason}")
+                    diag.append(f"Shortest cooldown is {wait_time:.1f}s (exceeds limit).")
+                    diag.append("Action: Check API keys, select a different model, or wait for quotas to reset.")
+                    raise LLMQuotaExhaustedError("\n".join(diag))
             else:
                 current_run_metrics.status = "llm_quota_exhausted"
                 current_run_metrics.finalize()
-                raise LLMQuotaExhaustedError("All configured LLM chain entries are exhausted (status: llm_quota_exhausted).")
+                diag = ["All configured LLM chain entries are exhausted. Provider statuses:"]
+                for ex_entry in mgr.entries:
+                    diag.append(f" - {ex_entry.provider}/{ex_entry.model}: {ex_entry.exhaustion_reason}")
+                diag.append("Action: Check API keys and configured models.")
+                raise LLMQuotaExhaustedError("\n".join(diag))
 
         working_messages = list(messages)
         last_error = ""
@@ -798,18 +807,18 @@ async def generate_action(
                             mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
                             break
 
-                elif "503" in err_str or "unavailable" in err_str.lower() or "timeout" in err_str.lower():
+                elif any(code in err_str for code in ["502", "503", "504"]) or "unavailable" in err_str.lower() or "timeout" in err_str.lower() or "network" in err_str.lower() or "connection" in err_str.lower():
                     attempts_log.append({
                         "provider": entry.provider,
                         "model": entry.model,
-                        "outcome": "503/timeout",
+                        "outcome": "5xx/network/timeout",
                         "wait_sec": wait_sec
                     })
                     if attempt < max_retries:
-                        logger.warning(f"[MultiProvider] Entry '{entry.key}' transient 503/timeout error. Retrying in 2s...")
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' transient network/5xx error. Retrying in 2s...")
                         if total_wait + 2.0 > 20.0:
                             logger.warning(f"[MultiProvider] Entry '{entry.key}' total wait > 20s. Failing over...")
-                            mgr.mark_exhausted(entry, "per_minute", "503 timeout", retry_after=60.0)
+                            mgr.mark_exhausted(entry, "per_minute", "Transient network timeout", retry_after=60.0)
                             break
                         await asyncio.sleep(2)
                         total_wait += 2.0
@@ -817,7 +826,7 @@ async def generate_action(
                         continue
                     else:
                         logger.warning(f"[MultiProvider] Entry '{entry.key}' error persisted: {e}. Switching to next entry...")
-                        mgr.mark_exhausted(entry, "per_minute", f"503 persisted: {e}", retry_after=300)
+                        mgr.mark_exhausted(entry, "per_minute", f"Network error persisted: {e}", retry_after=300)
                         break
 
                 else:
@@ -827,8 +836,22 @@ async def generate_action(
                         "outcome": f"error: {e}",
                         "wait_sec": wait_sec
                     })
-                    # Other errors (e.g. 404 deprecated model, 400 invalid request)
-                    logger.warning(f"[MultiProvider] Entry '{entry.key}' error: {e}. Switching to next entry...")
-                    mgr.mark_exhausted(entry, "daily", f"Error: {e}")
-                    break
+                    err_lower = err_str.lower()
+                    
+                    if any(code in err_lower for code in ["401", "403", "unauthorized", "api_key_invalid", "invalid_api_key", "forbidden"]):
+                        logger.warning(f"[MultiProvider] Provider '{entry.provider}' auth/billing failure: {e}. Disabling provider.")
+                        for other_entry in mgr.entries:
+                            if other_entry.provider == entry.provider and not other_entry.is_exhausted:
+                                mgr.mark_exhausted(other_entry, "daily", f"Provider Auth/Billing Error: {e}")
+                        break
+
+                    elif "404" in err_lower or "not found" in err_lower or "does not exist" in err_lower:
+                        logger.warning(f"[MultiProvider] Model '{entry.key}' not found/invalid: {e}. Switching to next entry...")
+                        mgr.mark_exhausted(entry, "daily", f"Invalid Model: {e}")
+                        break
+                        
+                    else:
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' unhandled error: {e}. Switching to next entry...")
+                        mgr.mark_exhausted(entry, "daily", f"Unhandled Error: {e}")
+                        break
 
