@@ -16,6 +16,20 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
+# Auto-seed if the db is empty
+try:
+    _conn = get_db()
+    _conn.execute("SELECT 1 FROM users")
+    _conn.close()
+except sqlite3.OperationalError:
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from mock_env.seed import seed_vendor_portal
+        seed_vendor_portal("base")
+    except ImportError:
+        pass
+
 @app.middleware("http")
 async def chaos_middleware(request: Request, call_next):
     if chaos.is_active("flaky_500"):
