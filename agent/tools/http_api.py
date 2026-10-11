@@ -17,7 +17,7 @@ class HttpTool(BaseTool):
 
     async def run(self, method: str, url: str, body: dict = None) -> ToolResult:
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 if method.upper() == "GET":
                     r = await client.get(url)
                 else:

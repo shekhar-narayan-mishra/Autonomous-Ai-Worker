@@ -65,9 +65,6 @@ async def test_ui_regression():
             # 2. A backend startup failure is shown as an error
             # Simulate a "final" event with error
             await page.evaluate("""
-                let es = new EventSource('/stream/test-run-id');
-                // runTask overrides eventSource global
-                eventSource = es;
                 eventSource.onmessage({
                     data: JSON.stringify({ type: 'final', data: { result: 'error', error: 'Database locked' } })
                 });

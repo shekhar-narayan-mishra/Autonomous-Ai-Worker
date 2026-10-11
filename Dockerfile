@@ -3,12 +3,12 @@ FROM mcr.microsoft.com/playwright/python:v1.42.0-jammy
 
 WORKDIR /app
 
-# Copy requirements and install dependencies
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy requirements and install dependencies from lockfile
+COPY requirements.txt requirements.lock.txt ./
+RUN pip install --no-cache-dir -r requirements.lock.txt
 
-# Ensure Chromium browser is ready
-RUN playwright install chromium
+# Ensure Chromium browser is ready with dependencies
+RUN playwright install --with-deps chromium
 
 # Copy application source code
 COPY . ./

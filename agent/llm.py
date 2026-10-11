@@ -57,8 +57,21 @@ class LLMResponse(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     expected_outcome: str
 
+from enum import Enum
+
+class LLMErrorClass(str, Enum):
+    CONFIG_ERROR = "config_error"
+    QUOTA_DAILY = "quota_daily"
+    QUOTA_MINUTE = "quota_minute"
+    TRANSIENT = "transient"
+    BAD_REQUEST = "bad_request"
+
 class LLMQuotaExhaustedError(RuntimeError):
     """Raised when all configured LLM chain entries have exhausted their quotas."""
+
+class LLMPreflightError(RuntimeError):
+    """Raised when preflight check fails because no configured LLM chain entry is usable."""
+
 
 # Run Metrics
 class RunMetrics:
@@ -285,7 +298,176 @@ def classify_429(provider: str, error: Exception) -> tuple[str, float | None, st
 
     return "per_minute", retry_after, "Generic 429"
 
+def classify_failure(provider: str, error: Exception) -> tuple[str, str, float | None]:
+    """
+    Classify a provider error into:
+    - LLMErrorClass.CONFIG_ERROR: ImportError, ModuleNotFoundError, TypeError on client construction, missing API key
+    - LLMErrorClass.QUOTA_DAILY: daily quota exhaustion
+    - LLMErrorClass.QUOTA_MINUTE: per-minute rate limit
+    - LLMErrorClass.TRANSIENT: 5xx, network timeout, connection drops
+    - LLMErrorClass.BAD_REQUEST: 400, 401/403 auth, 404 model not found, schema/parsing error
+    Returns: (classification: str, reason: str, retry_after: float | None)
+    """
+    err_str = str(error)
+    err_lower = err_str.lower()
+
+    # 1. Config errors (never persisted to .llm_state.json)
+    if isinstance(error, (ImportError, ModuleNotFoundError, TypeError)):
+        return LLMErrorClass.CONFIG_ERROR.value, f"SDK/Client config error: {error}", None
+    if "no module named" in err_lower or "unexpected keyword argument" in err_lower:
+        return LLMErrorClass.CONFIG_ERROR.value, f"SDK installation or constructor argument mismatch: {error}", None
+    if "api key" in err_lower and ("missing" in err_lower or "not configured" in err_lower or "not set" in err_lower):
+        return LLMErrorClass.CONFIG_ERROR.value, f"Missing API key: {error}", None
+
+    # 2. Rate Limits / Quotas (429)
+    if "429" in err_str or "rate limit" in err_lower or "resource_exhausted" in err_lower or "quota" in err_lower:
+        ex_type, ra, reason = classify_429(provider, error)
+        if ex_type == "daily":
+            return LLMErrorClass.QUOTA_DAILY.value, reason, ra
+        return LLMErrorClass.QUOTA_MINUTE.value, reason, ra
+
+    # 3. Transient Network / Server 5xx
+    if any(code in err_str for code in ["502", "503", "504"]) or "unavailable" in err_lower or "timeout" in err_lower or "network" in err_lower or "connection" in err_lower or "remoteprotocolerror" in err_lower:
+        return LLMErrorClass.TRANSIENT.value, f"Transient network/server error: {error}", 2.0
+
+    # 4. Bad Request / Auth / Model not found
+    return LLMErrorClass.BAD_REQUEST.value, f"Provider error: {error}", None
+
+def run_preflight(raw_entries: list[tuple[str, str]] = None) -> dict:
+    """
+    PREFLIGHT check at server startup and at run start.
+    For each chain entry, verify SDK import and client construction (no network).
+    A config_error never marks an entry exhausted and is never persisted to .llm_state.json.
+    If no entry is usable, reports clear diagnostic message per entry with fix hint.
+    """
+    entries_to_check = raw_entries or config.CHAIN_ENTRIES
+    results = []
+    usable_count = 0
+
+    for provider, model in entries_to_check:
+        entry_status = "ready"
+        err_msg = ""
+        fix_hint = ""
+
+        # Check persistent exhaustion state
+        is_ex, reason, rem = is_entry_exhausted(provider, model)
+        if is_ex:
+            entry_status = "quota_exhausted"
+            err_msg = reason
+            fix_hint = f"Wait {int(rem)}s for quota to reset"
+            results.append({
+                "provider": provider,
+                "model": model,
+                "status": entry_status,
+                "error": err_msg,
+                "fix_hint": fix_hint,
+                "usable": False
+            })
+            continue
+
+        if provider == "gemini":
+            try:
+                import google.genai as genai_module
+            except (ImportError, ModuleNotFoundError) as e:
+                entry_status = "config_error"
+                err_msg = f"Missing SDK: {e}"
+                fix_hint = "pip install google-genai"
+            else:
+                if not config.GEMINI_API_KEY:
+                    entry_status = "config_error"
+                    err_msg = "GEMINI_API_KEY is not configured"
+                    fix_hint = "Set GEMINI_API_KEY in .env"
+                else:
+                    try:
+                        from google import genai
+                        _ = genai.Client(api_key=config.GEMINI_API_KEY)
+                    except Exception as e:
+                        entry_status = "config_error"
+                        err_msg = f"Client construction failed: {e}"
+                        fix_hint = "Verify google-genai version and API key format"
+
+        elif provider == "groq":
+            try:
+                import groq as groq_module
+                from groq import AsyncGroq, Groq
+            except (ImportError, ModuleNotFoundError) as e:
+                entry_status = "config_error"
+                err_msg = f"Missing SDK: {e}"
+                fix_hint = "pip install \"groq>=0.13\""
+            else:
+                if not config.GROQ_API_KEY:
+                    entry_status = "config_error"
+                    err_msg = "GROQ_API_KEY is not configured"
+                    fix_hint = "Set GROQ_API_KEY in .env"
+                else:
+                    try:
+                        _ = AsyncGroq(api_key=config.GROQ_API_KEY)
+                    except TypeError as e:
+                        entry_status = "config_error"
+                        err_msg = f"Client construction failed: {e}"
+                        fix_hint = "pip install \"groq>=0.13\" \"httpx>=0.27\""
+                    except Exception as e:
+                        entry_status = "config_error"
+                        err_msg = f"Client construction failed: {e}"
+                        fix_hint = "Verify groq client configuration"
+
+        elif provider == "openrouter":
+            try:
+                import httpx
+            except (ImportError, ModuleNotFoundError) as e:
+                entry_status = "config_error"
+                err_msg = f"Missing SDK: {e}"
+                fix_hint = "pip install httpx"
+            else:
+                if not config.OPENROUTER_API_KEY:
+                    entry_status = "config_error"
+                    err_msg = "OPENROUTER_API_KEY is not configured"
+                    fix_hint = "Set OPENROUTER_API_KEY in .env"
+                else:
+                    try:
+                        _ = httpx.AsyncClient(timeout=60.0)
+                    except Exception as e:
+                        entry_status = "config_error"
+                        err_msg = f"Client construction failed: {e}"
+                        fix_hint = "Verify httpx installation"
+
+        elif provider in ["scripted", "fake"]:
+            entry_status = "ready"
+        else:
+            entry_status = "config_error"
+            err_msg = f"Unknown provider '{provider}'"
+            fix_hint = "Use gemini, groq, or openrouter"
+
+        is_usable = (entry_status == "ready")
+        if is_usable:
+            usable_count += 1
+
+        results.append({
+            "provider": provider,
+            "model": model,
+            "status": entry_status,
+            "error": err_msg,
+            "fix_hint": fix_hint,
+            "usable": is_usable
+        })
+
+    usable = (usable_count > 0)
+    error_summary = ""
+    if not usable:
+        lines = ["[PREFLIGHT FAILED] No configured LLM chain entry is usable:"]
+        for r in results:
+            lines.append(f" - {r['provider']}/{r['model']}: {r['status']} ({r['error']}). Fix: {r['fix_hint']}")
+        error_summary = "\n".join(lines)
+
+    return {
+        "usable": usable,
+        "usable_count": usable_count,
+        "entries": results,
+        "error_summary": error_summary
+    }
+
 # Provider Models Cache & Startup Filter
+
 _SUPPORTED_MODELS_CACHE: dict[str, set[str]] = {}
 
 def get_supported_models(provider: str) -> set[str]:
@@ -415,6 +597,7 @@ async def call_gemini(model: str, messages: list[dict], schema: type[BaseModel])
     schema_dict = remove_additional_properties(schema_dict)
 
     gen_config = types.GenerateContentConfig(
+        temperature=0.0,
         response_mime_type="application/json",
         response_schema=schema_dict,
         system_instruction=system_instruction if system_instruction else None
@@ -454,6 +637,7 @@ async def call_groq(model: str, messages: list[dict], schema: type[BaseModel]) -
     kwargs = {
         "model": model,
         "messages": messages,
+        "temperature": 0.0,
         "response_format": {"type": "json_object"}
     }
     # Only gpt-oss supports reasoning_effort
@@ -505,6 +689,7 @@ async def call_openrouter(model: str, messages: list[dict], schema: type[BaseMod
     payload = {
         "model": model,
         "messages": messages,
+        "temperature": 0.0,
         "response_format": {"type": "json_object"}
     }
     start_time = time.time()
@@ -536,7 +721,12 @@ class LLMChainManager:
     def __init__(self, raw_entries: list[tuple[str, str]] = None, check_models_list: bool = False):
         self.raw_entries = raw_entries or config.CHAIN_ENTRIES
         self.entries: list[ChainEntry] = []
+        self.active_entry: ChainEntry | None = None
         self._init_chain(check_models_list=check_models_list)
+
+    @property
+    def chain(self) -> list[ChainEntry]:
+        return self.entries
 
     def _init_chain(self, check_models_list: bool = False):
         for provider, model in self.raw_entries:
@@ -560,13 +750,28 @@ class LLMChainManager:
 
     def get_active_entry(self) -> ChainEntry | None:
         now = time.time()
+        # Keep one provider/model for the whole run unless it fails (sticky)
+        if self.active_entry is not None:
+            if not self.active_entry.is_exhausted:
+                return self.active_entry
+            if self.active_entry.exhaustion_expires_at > 0 and now >= self.active_entry.exhaustion_expires_at:
+                self.active_entry.is_exhausted = False
+                self.active_entry.exhaustion_reason = ""
+                return self.active_entry
+
         for e in self.entries:
             if e.is_exhausted:
                 if e.exhaustion_expires_at > 0 and now >= e.exhaustion_expires_at:
                     e.is_exhausted = False
                     e.exhaustion_reason = ""
+                    if self.active_entry and self.active_entry.key != e.key:
+                        logger.info(f"[LLM Chain] Switching provider/model from {self.active_entry.key} to {e.key}")
+                    self.active_entry = e
                     return e
             else:
+                if self.active_entry and self.active_entry.key != e.key:
+                    logger.info(f"[LLM Chain] Switching provider/model from {self.active_entry.key} to {e.key}")
+                self.active_entry = e
                 return e
         return None
 
@@ -575,8 +780,11 @@ class LLMChainManager:
         entry.exhaustion_reason = reason
         expires_at = record_entry_exhaustion(entry.provider, entry.model, exhaustion_type, reason, retry_after)
         entry.exhaustion_expires_at = expires_at
+        if self.active_entry == entry:
+            self.active_entry = None
         current_run_metrics.record_switch()
         logger.warning(f"[LLM Chain] Marked '{entry.key}' as EXHAUSTED (type: {exhaustion_type}, reason: {reason})")
+
 
 # Lazy singleton — created on first use via _get_chain_manager(), not at import time
 _chain_manager: LLMChainManager | None = None
@@ -587,6 +795,8 @@ def _get_chain_manager() -> LLMChainManager:
     if _chain_manager is None:
         _chain_manager = LLMChainManager(check_models_list=False)
     return _chain_manager
+
+get_chain_manager = _get_chain_manager
 
 def set_chain_manager(custom_manager: LLMChainManager):
     global _chain_manager
@@ -770,48 +980,66 @@ async def generate_action(
                     })
                     continue
 
-                if "429" in err_str or "rate limit" in err_str.lower() or "resource_exhausted" in err_str.lower():
-                    current_run_metrics.record_429()
-                    ex_type, ra, reason = classify_429(entry.provider, e)
+                failure_class, reason, ra = classify_failure(entry.provider, e)
+
+                if failure_class == LLMErrorClass.CONFIG_ERROR.value:
+                    # CRITICAL: A config_error NEVER marks an entry exhausted on disk and is NEVER persisted to .llm_state.json
+                    logger.error(f"[MultiProvider] Configuration error on entry '{entry.key}': {reason}. This will NOT be persisted to .llm_state.json.")
+                    entry.is_exhausted = True
+                    entry.exhaustion_reason = f"Config error: {reason}"
+                    entry.exhaustion_expires_at = 0.0  # in-memory only!
+                    if mgr.active_entry == entry:
+                        mgr.active_entry = None
                     attempts_log.append({
                         "provider": entry.provider,
                         "model": entry.model,
-                        "outcome": f"429 rate limit ({ex_type})",
+                        "outcome": f"config_error: {e}",
                         "wait_sec": wait_sec
                     })
+                    current_run_metrics.record_switch()
+                    break
 
-                    if ex_type == "daily":
-                        mgr.mark_exhausted(entry, "daily", reason, retry_after=ra)
-                        break  # Break inner loop, move to next entry
-                    else:  # per_minute
-                        backoff = ra if (ra and ra > 0) else min(8.0, (2 ** attempt) + random.uniform(0.1, 0.5))
-                        if backoff > 8.0:
-                            logger.warning(f"[MultiProvider] Entry '{entry.key}' retry-after > 8s ({backoff:.1f}s). Failing over...")
-                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
-                            break
-                        
-                        if total_wait + backoff > 20.0:
-                            logger.warning(f"[MultiProvider] Entry '{entry.key}' total wait > 20s. Failing over...")
-                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
-                            break
-
-                        if attempt < max_retries:
-                            logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute 429. Backing off {backoff:.1f}s before retry...")
-                            await asyncio.sleep(backoff)
-                            total_wait += backoff
-                            wait_reasons.add("429")
-                            last_error = str(e)
-                            continue
-                        else:
-                            # Retries exhausted for this turn, mark per-minute in state and advance
-                            mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
-                            break
-
-                elif any(code in err_str for code in ["502", "503", "504"]) or "unavailable" in err_str.lower() or "timeout" in err_str.lower() or "network" in err_str.lower() or "connection" in err_str.lower():
+                elif failure_class == LLMErrorClass.QUOTA_DAILY.value:
+                    current_run_metrics.record_429()
                     attempts_log.append({
                         "provider": entry.provider,
                         "model": entry.model,
-                        "outcome": "5xx/network/timeout",
+                        "outcome": f"quota_daily: {reason}",
+                        "wait_sec": wait_sec
+                    })
+                    mgr.mark_exhausted(entry, "daily", reason, retry_after=ra)
+                    break
+
+                elif failure_class == LLMErrorClass.QUOTA_MINUTE.value:
+                    current_run_metrics.record_429()
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": f"quota_minute: {reason}",
+                        "wait_sec": wait_sec
+                    })
+                    backoff = ra if (ra and ra > 0) else min(8.0, (2 ** attempt) + random.uniform(0.1, 0.5))
+                    if backoff > 8.0 or (total_wait + backoff > 20.0):
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' retry-after/wait exceeds limit ({backoff:.1f}s). Failing over...")
+                        mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
+                        break
+
+                    if attempt < max_retries:
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' per-minute quota. Backing off {backoff:.1f}s before retry...")
+                        await asyncio.sleep(backoff)
+                        total_wait += backoff
+                        wait_reasons.add("429")
+                        last_error = str(e)
+                        continue
+                    else:
+                        mgr.mark_exhausted(entry, "per_minute", reason, retry_after=backoff)
+                        break
+
+                elif failure_class == LLMErrorClass.TRANSIENT.value:
+                    attempts_log.append({
+                        "provider": entry.provider,
+                        "model": entry.model,
+                        "outcome": "transient (5xx/network/timeout)",
                         "wait_sec": wait_sec
                     })
                     if attempt < max_retries:
@@ -825,33 +1053,31 @@ async def generate_action(
                         last_error = str(e)
                         continue
                     else:
-                        logger.warning(f"[MultiProvider] Entry '{entry.key}' error persisted: {e}. Switching to next entry...")
+                        logger.warning(f"[MultiProvider] Entry '{entry.key}' transient error persisted: {e}. Switching to next entry...")
                         mgr.mark_exhausted(entry, "per_minute", f"Network error persisted: {e}", retry_after=300)
                         break
 
-                else:
+                else:  # BAD_REQUEST / Other
                     attempts_log.append({
                         "provider": entry.provider,
                         "model": entry.model,
-                        "outcome": f"error: {e}",
+                        "outcome": f"bad_request: {e}",
                         "wait_sec": wait_sec
                     })
                     err_lower = err_str.lower()
-                    
                     if any(code in err_lower for code in ["401", "403", "unauthorized", "api_key_invalid", "invalid_api_key", "forbidden"]):
                         logger.warning(f"[MultiProvider] Provider '{entry.provider}' auth/billing failure: {e}. Disabling provider.")
                         for other_entry in mgr.entries:
                             if other_entry.provider == entry.provider and not other_entry.is_exhausted:
                                 mgr.mark_exhausted(other_entry, "daily", f"Provider Auth/Billing Error: {e}")
                         break
-
                     elif "404" in err_lower or "not found" in err_lower or "does not exist" in err_lower:
                         logger.warning(f"[MultiProvider] Model '{entry.key}' not found/invalid: {e}. Switching to next entry...")
                         mgr.mark_exhausted(entry, "daily", f"Invalid Model: {e}")
                         break
-                        
                     else:
                         logger.warning(f"[MultiProvider] Entry '{entry.key}' unhandled error: {e}. Switching to next entry...")
                         mgr.mark_exhausted(entry, "daily", f"Unhandled Error: {e}")
                         break
+
 

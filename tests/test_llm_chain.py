@@ -148,3 +148,43 @@ async def test_cooldown_expiry(mock_chain_manager):
     entry = mock_chain_manager.get_active_entry()
     assert entry == mock_chain_manager.entries[0]
     assert not entry.is_exhausted
+
+@pytest.mark.asyncio
+async def test_config_error_never_persisted(mock_chain_manager, monkeypatch, tmp_path):
+    # Test that ImportError / TypeError does NOT write to .llm_state.json
+    state_file = str(tmp_path / "test_state.json")
+    monkeypatch.setattr("config.LLM_STATE_FILE", state_file)
+
+    async def mock_call_gemini(*args, **kwargs):
+        raise TypeError("AsyncClient.__init__() got an unexpected keyword argument 'proxies'")
+
+    async def mock_call_groq(*args, **kwargs):
+        return LLMResponse(thought="t", action="finish", args={}, expected_outcome="e"), {"tokens": {}, "latency_ms": 100, "provider": "groq", "model": "llama-3-8b"}
+
+    monkeypatch.setattr("agent.llm.call_gemini", mock_call_gemini)
+    monkeypatch.setattr("agent.llm.call_groq", mock_call_groq)
+
+    action, usage = await generate_action("test prompt")
+    assert usage["provider"] == "groq"
+
+    # Verify state_file was NOT created or has no gemini entries
+    import os, json
+    if os.path.exists(state_file):
+        with open(state_file) as f:
+            state = json.load(f)
+        for k in state:
+            assert not k.startswith("gemini"), f"Config error entry {k} was persisted to state!"
+
+def test_run_preflight():
+    from agent.llm import run_preflight
+    # Preflight on scripted/fake entries should be usable
+    res = run_preflight([("scripted", "fake-model")])
+    assert res["usable"] is True
+    assert res["usable_count"] == 1
+    assert res["entries"][0]["status"] == "ready"
+
+    # Preflight on missing provider
+    res_bad = run_preflight([("nonexistent_provider", "model-1")])
+    assert res_bad["usable"] is False
+    assert "Unknown provider" in res_bad["error_summary"]
+

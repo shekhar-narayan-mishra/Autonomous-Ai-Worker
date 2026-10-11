@@ -63,6 +63,7 @@ async def test_full_scripted_e2e_pass(mock_env, monkeypatch, capsys):
     res = await run_loop("Enter invoice INV-101 from Vendor Portal into Internal ERP", task_args={"verifier": "invoice_entry", "vendor_name": "Acme Corp", "invoice_id": "INV-101"})
     
     assert res["status"] == "SUCCESS", f"Expected SUCCESS, got {res.get('status')}"
+    assert fake_llm.step_idx <= 14, f"Base task must complete in <= 14 steps, took {fake_llm.step_idx}"
     
     # Print trace table
     print("Step | Action | OK | Tool MS")

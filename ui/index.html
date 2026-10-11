@@ -732,6 +732,11 @@
                         </div>
                     </label>
                 </div>
+
+                <div class="form-group" id="run-token-group" style="margin-top: 14px;">
+                    <label>Run Token (if required)</label>
+                    <input type="password" id="run-token-input" placeholder="Optional RUN_TOKEN" autocomplete="off" style="font-family:monospace; font-size:12px;">
+                </div>
             </div>
 
             <div class="sidebar-section" style="padding-top: 0; padding-bottom: 20px;">
@@ -837,10 +842,59 @@
             }
         };
 
+        // Load saved run token
+        const savedToken = localStorage.getItem('run_token');
+        if (savedToken && document.getElementById('run-token-input')) {
+            document.getElementById('run-token-input').value = savedToken;
+        }
+
         // Load Env
         fetch('/env').then(r => r.json()).then(data => {
             document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
             
+            // Show effective config
+            if (data && data.effective_config) {
+                const cfg = data.effective_config;
+                let cfgHtml = '<div style="margin-top:16px; font-size:12px; color:var(--text-secondary); border-top: 1px solid var(--border-subtle); padding-top: 14px;">';
+                cfgHtml += '<div style="margin-bottom:8px; font-weight:600; color:var(--text); display:flex; justify-content:space-between; align-items:center;">';
+                cfgHtml += '<span>Effective Config</span>';
+                if (cfg.preflight_ok) {
+                    cfgHtml += '<span style="color:var(--success); font-size:11px; padding:2px 6px; border-radius:4px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3);">Preflight OK</span>';
+                } else {
+                    cfgHtml += '<span style="color:var(--danger); font-size:11px; padding:2px 6px; border-radius:4px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3);">Config Error</span>';
+                }
+                cfgHtml += '</div>';
+                cfgHtml += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px;">
+                    <div>Max Steps: <strong style="color:var(--text);">${cfg.max_steps}</strong></div>
+                    <div>Wall Cap: <strong style="color:var(--text);">${cfg.wall_timeout_cap}s</strong></div>
+                    <div>Tool Cap: <strong style="color:var(--text);">${cfg.tool_timeout_cap}s</strong></div>
+                    <div>Env: <strong style="color:var(--text);">${(cfg.environment_file || '').replace('config/', '')}</strong></div>
+                </div>`;
+                if (cfg.chain_order && cfg.chain_order.length > 0) {
+                    cfgHtml += '<div style="font-size:11px; margin-bottom:6px; color:var(--text-muted);">Chain Order:</div>';
+                    cfgHtml += '<div style="display:flex; flex-direction:column; gap:4px; margin-bottom:8px;">';
+                    cfg.chain_order.forEach((c, idx) => {
+                        cfgHtml += `<div style="padding:4px 8px; background:var(--bg-deep); border-radius:4px; border:1px solid var(--border-subtle); font-family:monospace; font-size:11px;">#${idx+1} ${c}</div>`;
+                    });
+                    cfgHtml += '</div>';
+                }
+                if (cfg.chain_status && cfg.chain_status.length > 0) {
+                    cfgHtml += '<div style="font-size:11px; margin-bottom:4px; color:var(--text-muted);">Chain Preflight Status:</div>';
+                    cfgHtml += '<div style="display:flex; flex-direction:column; gap:4px;">';
+                    cfg.chain_status.forEach(cs => {
+                        const icon = cs.usable ? '✓' : '✗';
+                        const color = cs.usable ? 'var(--success)' : 'var(--danger)';
+                        cfgHtml += `<div style="font-size:11px; padding:4px 6px; border-radius:4px; background:var(--bg-deep); border:1px solid var(--border-subtle);">
+                            <span style="color:${color}; font-weight:bold;">${icon}</span> <strong>${cs.provider}/${cs.model}</strong>: ${cs.usable ? 'Ready' : cs.error || 'Unavailable'}
+                            ${cs.fix_hint ? `<div style="color:var(--text-muted); font-size:10px; margin-top:2px;">Hint: ${cs.fix_hint}</div>` : ''}
+                        </div>`;
+                    });
+                    cfgHtml += '</div>';
+                }
+                cfgHtml += '</div>';
+                document.getElementById('env-content').insertAdjacentHTML('beforeend', cfgHtml);
+            }
+
             // Add manual testing links
             if (data && data.apps && Array.isArray(data.apps)) {
                 let html = '<div style="margin-top:16px; font-size:13px; color:var(--text-secondary); border-top: 1px solid var(--border-subtle); padding-top: 16px;">';
@@ -877,6 +931,11 @@
             const seedProfile = document.getElementById('seed-profile').value;
             const resetEnv = document.getElementById('reset-env').checked;
 
+            const runToken = document.getElementById('run-token-input') ? document.getElementById('run-token-input').value.trim() : (localStorage.getItem('run_token') || '');
+            if (document.getElementById('run-token-input') && runToken) {
+                localStorage.setItem('run_token', runToken);
+            }
+
             const runBtn = document.getElementById('run-btn');
             runBtn.disabled = true;
             runBtn.innerHTML = "<span>⚙</span> Running...";
@@ -892,18 +951,43 @@
             
             if (eventSource) eventSource.close();
 
-            const res = await fetch('/run', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    task: task,
-                    chaos: chaos || null,
-                    auto_approve: autoApprove,
-                    vendor_name: vendor,
-                    seed_profile: seedProfile,
-                    reset_env: resetEnv
-                })
-            });
+            const headers = {'Content-Type': 'application/json'};
+            if (runToken) headers['X-Run-Token'] = runToken;
+
+            let res;
+            try {
+                res = await fetch('/run', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        task: task,
+                        chaos: chaos || null,
+                        auto_approve: autoApprove,
+                        vendor_name: vendor,
+                        seed_profile: seedProfile,
+                        reset_env: resetEnv,
+                        run_token: runToken || null
+                    })
+                });
+            } catch (err) {
+                runBtn.disabled = false;
+                runBtn.innerHTML = "<span>▶</span> Run Task";
+                alert("Network error starting run: " + err.message);
+                return;
+            }
+
+            if (res.ok === false || (res.status && (res.status < 200 || res.status >= 300))) {
+                const errData = await res.json().catch(() => ({detail: "HTTP " + res.status}));
+                runBtn.disabled = false;
+                runBtn.innerHTML = "<span>▶</span> Run Task";
+                const errorMsg = errData.detail || ("Error " + res.status);
+                document.getElementById('final-panel').style.display = "block";
+                document.getElementById('final-empty-state').style.display = "none";
+                document.getElementById('final-summary').innerHTML = `<h3 class="error-text">✗ Launch Blocked (${res.status})</h3>
+                    <div style="font-size:13px; color:var(--text-secondary); margin-top:6px;">${errorMsg}</div>`;
+                return;
+            }
+
             const data = await res.json();
             currentRunId = data.run_id;
             
@@ -983,6 +1067,14 @@
                     eventSource.close();
                     runBtn.disabled = false;
                     runBtn.innerHTML = "<span>▶</span> Run Task";
+                    if (event.data && event.data.result === 'error') {
+                        showFinal({
+                            passed: false,
+                            status: "STARTUP_ERROR",
+                            report: event.data.error || "Backend task failed to start",
+                            checks: [{ name: "Backend Task", passed: false, details: event.data.error || "Startup error" }]
+                        });
+                    }
                 }
             };
         }
@@ -1071,6 +1163,7 @@
                 let title = "Verification Failed";
                 if (verifierData.status === "stalled") title = "Run Stalled (No Progress)";
                 else if (verifierData.status === "blocked") title = "Run Blocked (Unresolved Error)";
+                else if (verifierData.status === "timeout") title = "Run Timed Out (Wall Watchdog)";
                 else if (verifierData.status === "MAX_STEPS_REACHED") title = "Max Steps Reached";
                 else if (verifierData.status) title += ` (${verifierData.status})`;
                 

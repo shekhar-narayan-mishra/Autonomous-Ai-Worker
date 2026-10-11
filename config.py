@@ -59,7 +59,34 @@ OPENROUTER_RPM_LIMIT = int(os.getenv("OPENROUTER_RPM_LIMIT", "15"))
 # State persistence file
 LLM_STATE_FILE = os.getenv("LLM_STATE_FILE", ".llm_state.json")
 
+# Environment Profiles
+def get_environment_file() -> str:
+    env_file = os.getenv("ENVIRONMENT_FILE")
+    if env_file and os.path.exists(env_file):
+        return env_file
+    if os.path.exists("config/environment.yaml"):
+        return "config/environment.yaml"
+    if os.path.exists("config/environment.local.yaml"):
+        return "config/environment.local.yaml"
+    return "config/environment.yaml"
+
+def load_environment() -> dict:
+    import yaml
+    env_path = get_environment_file()
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            return yaml.safe_load(f) or {}
+    return {}
+
+# Runtime Safety and Budgets
+RUN_TOKEN = os.getenv("RUN_TOKEN", "")
+DEMO_MODE = os.getenv("DEMO_MODE", "")  # e.g. "replay_only"
+MAX_STEPS = int(os.getenv("MAX_STEPS", "30"))
+WALL_TIMEOUT_CAP = float(os.getenv("WALL_TIMEOUT_CAP", "600"))
+TOOL_TIMEOUT_CAP = float(os.getenv("TOOL_TIMEOUT_CAP", "20"))
+
 # Backward compatibility
 PROVIDER_CHAIN = CHAIN_ENTRIES
 MODEL_NAME = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-120b"
+

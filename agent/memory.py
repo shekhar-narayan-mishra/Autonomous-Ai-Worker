@@ -34,14 +34,16 @@ class MemoryStore:
             
         return facts_str + history_str
 
+from typing import Any
+
 class SaveFactArgs(BaseModel):
     key: str | None = Field(None, description="Unique key for a single fact")
-    value: str | None = Field(None, description="Value to store for a single fact")
-    facts: dict[str, str] | None = Field(None, description="Object containing multiple key-value pairs to store at once")
+    value: Any | None = Field(None, description="Value to store for a single fact")
+    facts: dict[str, Any] | None = Field(None, description="Object containing multiple key-value pairs to store at once")
 
 class SaveFactTool(BaseTool):
     name = "save_fact"
-    description = "Save an important fact to memory."
+    description = "Save one or multiple important facts to memory."
     args_schema = SaveFactArgs
     risk_level = RiskLevel.READ
     
@@ -49,11 +51,11 @@ class SaveFactTool(BaseTool):
         super().__init__()
         self.last_keys = set()
         
-    async def run(self, key: str = None, value: str = None, facts: dict = None) -> ToolResult:
+    async def run(self, key: str = None, value: Any = None, facts: dict = None) -> ToolResult:
         if not hasattr(self, 'store'):
             return ToolResult(ok=False, observation="Memory store not bound.")
             
-        new_facts = facts or {}
+        new_facts = dict(facts) if facts else {}
         if key and value is not None:
             new_facts[key] = value
             
