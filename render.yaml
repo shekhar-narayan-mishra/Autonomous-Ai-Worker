@@ -5,12 +5,23 @@ services:
     plan: free
     region: oregon
     dockerfilePath: Dockerfile
+    autoDeploy: true
+    healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.8"
+      - key: ENVIRONMENT_FILE
+        value: "config/environment.render.yaml"
+      - key: DEMO_MODE
+        value: "replay_only"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Dashboard-configured secrets (sync: false, values never committed)
       - key: GEMINI_API_KEY
         sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
-      - key: PYTHONUNBUFFERED
-        value: "1"
+      - key: RUN_TOKEN
+        sync: false

@@ -16,8 +16,12 @@ COPY . ./
 # Seed mock databases during build
 RUN python mock_env/seed.py
 
+# Build arguments & environment
+ARG GIT_SHA=""
+ENV GIT_SHA=${GIT_SHA}
+
 # Ensure start script is executable
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh render-build.sh
 
 # Expose server port
 EXPOSE 8000

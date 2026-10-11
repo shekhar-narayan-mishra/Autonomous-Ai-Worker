@@ -40,32 +40,37 @@ async def test_replay_endpoint(tmp_path):
         return orig_open(path, mode, **kwargs)
 
     import server
-    server.os.path.exists = mock_exists
-    server.open = mock_open
+    try:
+        server.os.path.exists = mock_exists
+        server.open = mock_open
+                
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            start_real = time.time()
+            # speed = 8, so 8s wait becomes 1s wait
+            response = await ac.get(f"/replay/{run_id}?speed=8")
+            assert response.status_code == 200
             
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        start_real = time.time()
-        # speed = 8, so 8s wait becomes 1s wait
-        response = await ac.get(f"/replay/{run_id}?speed=8")
-        assert response.status_code == 200
-        
-        content = b""
-        async for chunk in response.aiter_bytes():
-            content += chunk
+            content = b""
+            async for chunk in response.aiter_bytes():
+                content += chunk
+                
+            end_real = time.time()
             
-        end_real = time.time()
-        
-        assert (end_real - start_real) >= 0.9 # Should take at least 1s
-        
-        events = [e.strip() for e in content.decode().split("\n\n") if e.strip()]
-        
-        assert len(events) == 4 # meta, step1, step2, final
-        assert "replay_meta" in events[0]
-        assert "step" in events[1]
-        assert "t1" in events[1]
-        assert "step" in events[2]
-        assert "t2" in events[2]
-        assert "final" in events[3]
-        assert "is_replay" in events[3]
+            assert (end_real - start_real) >= 0.9 # Should take at least 1s
+            
+            events = [e.strip() for e in content.decode().split("\n\n") if e.strip()]
+            
+            assert len(events) == 4 # meta, step1, step2, final
+            assert "replay_meta" in events[0]
+            assert "step" in events[1]
+            assert "t1" in events[1]
+            assert "step" in events[2]
+            assert "t2" in events[2]
+            assert "final" in events[3]
+            assert "is_replay" in events[3]
+    finally:
+        server.os.path.exists = orig_exists
+        if hasattr(server, "open"):
+            delattr(server, "open")
 

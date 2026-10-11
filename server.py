@@ -175,10 +175,13 @@ async def replay_run(run_id: str, speed: float = 4.0):
                 pass
 
         last_timestamp = None
+        has_finish = False
         for line in lines:
             if not line.strip():
                 continue
             entry = json.loads(line)
+            if entry.get("action") == "finish":
+                has_finish = True
 
             screenshot_raw = entry.get("screenshot")
             screenshot_url = f"/{screenshot_raw}" if screenshot_raw else None
@@ -209,9 +212,176 @@ async def replay_run(run_id: str, speed: float = 4.0):
             yield f"data: {json.dumps(event)}\n\n"
             last_timestamp = entry["timestamp"]
 
-        yield f"data: {json.dumps({'type': 'final', 'data': {'result': 'success', 'is_replay': True}})}\n\n"
+        is_passing = has_finish and (run_id != "sample_demo")
+        if is_passing:
+            yield f"data: {json.dumps({'type': 'final', 'data': {'result': 'success', 'is_replay': True}})}\n\n"
+        else:
+            yield f"data: {json.dumps({'type': 'final', 'data': {'result': 'failed', 'is_replay': True, 'error': 'Run failed: did not end in a passing verifier'}})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "demo_mode": os.getenv("DEMO_MODE", "").strip().lower() == "replay_only",
+        "timestamp": time.time()
+    }
+
+
+def get_git_sha() -> str:
+    for env_var in ("GIT_SHA", "RENDER_GIT_COMMIT", "COMMIT_SHA"):
+        val = os.getenv(env_var, "").strip()
+        if val:
+            return val
+    try:
+        import subprocess
+        res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def get_provider_preflight_info() -> dict:
+    providers = {}
+    # gemini
+    gemini_key = bool(os.getenv("GEMINI_API_KEY", "").strip())
+    gemini_import = False
+    gemini_client = False
+    try:
+        from google import genai
+        gemini_import = True
+        if gemini_key:
+            try:
+                _ = genai.Client(api_key=os.getenv("GEMINI_API_KEY", "").strip())
+                gemini_client = True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    providers["gemini"] = {
+        "import_ok": gemini_import,
+        "client_ok": gemini_client,
+        "key_present": gemini_key
+    }
+
+    # groq
+    groq_key = bool(os.getenv("GROQ_API_KEY", "").strip())
+    groq_import = False
+    groq_client = False
+    try:
+        from groq import AsyncGroq
+        groq_import = True
+        if groq_key:
+            try:
+                _ = AsyncGroq(api_key=os.getenv("GROQ_API_KEY", "").strip())
+                groq_client = True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    providers["groq"] = {
+        "import_ok": groq_import,
+        "client_ok": groq_client,
+        "key_present": groq_key
+    }
+
+    # openrouter
+    openrouter_key = bool(os.getenv("OPENROUTER_API_KEY", "").strip())
+    openrouter_import = False
+    openrouter_client = False
+    try:
+        import httpx
+        openrouter_import = True
+        if openrouter_key:
+            try:
+                _ = httpx.AsyncClient(timeout=60.0)
+                openrouter_client = True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    providers["openrouter"] = {
+        "import_ok": openrouter_import,
+        "client_ok": openrouter_client,
+        "key_present": openrouter_key
+    }
+
+    return providers
+
+
+@app.get("/version")
+async def get_version():
+    import importlib.metadata
+    import platform
+
+    def pkg_ver(name: str):
+        try:
+            return importlib.metadata.version(name)
+        except Exception:
+            return None
+
+    demo_mode = os.getenv("DEMO_MODE", "").strip().lower()
+    return {
+        "git_sha": get_git_sha(),
+        "python_version": platform.python_version(),
+        "packages": {
+            "google_genai": pkg_ver("google-genai"),
+            "groq": pkg_ver("groq"),
+            "httpx": pkg_ver("httpx"),
+            "playwright": pkg_ver("playwright"),
+        },
+        "demo_mode": demo_mode,
+        "environment_profile": os.getenv("ENVIRONMENT_FILE", "config/environment.local.yaml"),
+        "providers": get_provider_preflight_info()
+    }
+
+
+@app.get("/demo_runs")
+async def list_demo_runs():
+    results = []
+    if os.path.exists("demo_runs"):
+        for name in sorted(os.listdir("demo_runs")):
+            run_dir = os.path.join("demo_runs", name)
+            if not os.path.isdir(run_dir):
+                continue
+            trace_path = os.path.join(run_dir, "trace.jsonl")
+            if not os.path.exists(trace_path):
+                continue
+
+            steps = 0
+            finish_called = False
+            with open(trace_path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    steps += 1
+                    try:
+                        item = json.loads(line)
+                        if item.get("action") == "finish":
+                            finish_called = True
+                    except Exception:
+                        pass
+
+            is_passing = finish_called and (name != "sample_demo")
+            status = "success" if is_passing else "failed"
+            label = "Passing run" if is_passing else "Failed run"
+
+            results.append({
+                "id": name,
+                "name": name,
+                "steps": steps,
+                "finish_called": finish_called,
+                "is_passing": is_passing,
+                "status": status,
+                "label": label,
+                "description": f"Recorded run ({steps} steps, {'completed' if finish_called else 'incomplete / verifier not passed'})"
+            })
+    return results
 
 
 @app.post("/respond/{run_id}")
@@ -252,6 +422,23 @@ async def get_env():
                 app_copy["credentials"]["password"] = "***REDACTED***"
         safe_apps.append(app_copy)
 
+    demo_mode = os.getenv("DEMO_MODE", "").strip().lower()
+    if demo_mode == "replay_only":
+        return {
+            "apps": safe_apps,
+            "effective_config": {
+                "max_steps": config.MAX_STEPS,
+                "wall_timeout_cap": config.WALL_TIMEOUT_CAP,
+                "tool_timeout_cap": config.TOOL_TIMEOUT_CAP,
+                "chain_order": [],
+                "preflight_ok": None,
+                "chain_status": [],
+                "environment_file": os.getenv("ENVIRONMENT_FILE", "config/environment.local.yaml"),
+                "demo_mode": "replay_only",
+                "run_token_required": bool(os.getenv("RUN_TOKEN"))
+            }
+        }
+
     preflight_res = run_preflight()
     mgr = get_chain_manager()
     chain_info = preflight_res.get("entries", [])
@@ -269,7 +456,7 @@ async def get_env():
             "preflight_ok": preflight_ok,
             "chain_status": chain_info,
             "environment_file": os.getenv("ENVIRONMENT_FILE", "config/environment.local.yaml"),
-            "demo_mode": os.getenv("DEMO_MODE", ""),
+            "demo_mode": demo_mode,
             "run_token_required": bool(os.getenv("RUN_TOKEN"))
         }
     }
@@ -282,6 +469,11 @@ async def root():
 
 @app.on_event("startup")
 async def startup_event():
+    demo_mode = os.getenv("DEMO_MODE", "").strip().lower()
+    if demo_mode == "replay_only":
+        logger.info("Server startup in DEMO_MODE=replay_only: skipping LLM preflight and chain manager.")
+        return
+
     preflight_res = run_preflight()
     mgr = LLMChainManager(check_models_list=False)
     set_chain_manager(mgr)
