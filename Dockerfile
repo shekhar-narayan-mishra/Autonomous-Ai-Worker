@@ -28,5 +28,6 @@ EXPOSE 8000
 
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT_FILE=config/environment.render.yaml
 
 CMD ["./entrypoint.sh"]
