@@ -135,3 +135,30 @@ async def invoice_detail(request: Request, id: str):
     </body></html>
     """
     return html
+
+@app.get("/api/invoices")
+async def api_invoices():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM invoices").fetchall()
+    return [dict(r) for r in rows]
+
+@app.get("/api/invoices/{id}")
+async def api_invoice_detail(id: str):
+    conn = get_db()
+    inv = conn.execute("SELECT * FROM invoices WHERE id=?", (id,)).fetchone()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return dict(inv)
+
+@app.post("/admin/reset")
+async def admin_reset(request: Request, profile: str = "base"):
+    admin_token = os.getenv("ADMIN_TOKEN", "").strip()
+    provided_token = request.headers.get("x-admin-token", "").strip()
+    if not admin_token or provided_token != admin_token:
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing admin token")
+    try:
+        from mock_env.seed import seed_vendor_portal
+        seed_vendor_portal(profile)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reset failed: {e}")
+    return {"status": "ok", "app": "Vendor Portal", "profile": profile}

@@ -25,3 +25,5 @@ services:
         sync: false
       - key: RUN_TOKEN
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false

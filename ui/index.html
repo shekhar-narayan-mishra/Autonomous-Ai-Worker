@@ -665,7 +665,7 @@
         </div>
         <div class="header-status" id="header-status">
             <div class="status-dot"></div>
-            <span id="header-mode-text">Local Environment</span>
+            <span id="header-mode-text">Local</span>
             <span id="header-git-sha" style="display:none; font-family:monospace; font-size:11px; padding:2px 6px; background:rgba(255,255,255,0.08); border-radius:4px; margin-left:6px;"></span>
         </div>
     </header>
@@ -869,10 +869,11 @@
                 const demoMode = (verData && verData.demo_mode) || (envData && envData.effective_config && envData.effective_config.demo_mode) || '';
                 const isReplayMode = (demoMode === 'replay_only');
 
-                // 1. Header Mode & Git SHA
+                // 1. Header Mode (Active profile) & Git SHA
                 const headerMode = document.getElementById('header-mode-text');
+                const activeProf = (envData && envData.active_profile) || (verData && verData.active_profile) || (isReplayMode ? 'Replay demo' : 'Local');
                 if (headerMode) {
-                    headerMode.textContent = isReplayMode ? 'Replay demo' : 'Live (local)';
+                    headerMode.textContent = activeProf;
                 }
                 const gitSha = (verData && verData.git_sha) || '';
                 if (gitSha && gitSha !== 'unknown') {
@@ -942,7 +943,20 @@
 
         // Load Env
         fetch('/env').then(r => r.json()).then(data => {
-            document.getElementById('env-yaml').textContent = JSON.stringify(data, null, 2);
+            // Mask passwords in displayed Environment Config
+            const displayData = JSON.parse(JSON.stringify(data));
+            if (displayData.apps && Array.isArray(displayData.apps)) {
+                displayData.apps.forEach(app => {
+                    if (app.credentials) {
+                        for (let k in app.credentials) {
+                            if (k.toLowerCase().includes('password') || k.toLowerCase().includes('pwd') || k.toLowerCase().includes('secret') || k.toLowerCase().includes('token')) {
+                                app.credentials[k] = '***REDACTED***';
+                            }
+                        }
+                    }
+                });
+            }
+            document.getElementById('env-yaml').textContent = JSON.stringify(displayData, null, 2);
             
             // Show effective config
             if (data && data.effective_config) {
@@ -1295,6 +1309,24 @@
                 const lastMarker = markers[markers.length - 1];
                 lastMarker.classList.remove('status-active', 'status-warning');
                 lastMarker.classList.add(verifierData.passed ? 'status-success' : 'status-error');
+            }
+
+            // List the URLs the verifier queried if available in evidence
+            const existingUrlsBox = document.getElementById('verifier-queried-urls');
+            if (existingUrlsBox) existingUrlsBox.remove();
+
+            if (verifierData.evidence && (verifierData.evidence.portal_url || verifierData.evidence.erp_url)) {
+                const urlsBox = document.createElement('div');
+                urlsBox.id = 'verifier-queried-urls';
+                urlsBox.style.cssText = 'margin-top:14px; padding:10px 14px; background:var(--bg-deep); border-radius:6px; border:1px solid var(--border-subtle); font-size:12px; color:var(--text-secondary);';
+                urlsBox.innerHTML = `
+                    <div style="font-weight:600; margin-bottom:6px; color:var(--text);">Verifier Queried Endpoints:</div>
+                    <div style="display:flex; flex-direction:column; gap:4px; font-family:monospace;">
+                        ${verifierData.evidence.portal_url ? `<div>Vendor Portal: <span style="color:var(--accent);">${verifierData.evidence.portal_url}</span></div>` : ''}
+                        ${verifierData.evidence.erp_url ? `<div>Internal ERP: <span style="color:var(--accent);">${verifierData.evidence.erp_url}</span></div>` : ''}
+                    </div>
+                `;
+                panel.appendChild(urlsBox);
             }
         }
     </script>

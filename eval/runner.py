@@ -17,12 +17,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import time
 from statistics import mean
 from unittest.mock import patch
+from agent.env_manager import get_app_base_url, reset_all_apps
 
 # ---------------------------------------------------------------------------
 # Metric helpers
@@ -125,15 +125,18 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
     Return a scripted deterministic action sequence for a given task ID.
     These sequences exercise the agent plumbing without any LLM calls.
     """
+    portal_url = get_app_base_url("Vendor Portal")
+    erp_url = get_app_base_url("Internal ERP")
+
     GOTO_PORTAL = {"thought": "Navigate to vendor portal", "action": "browser",
-                   "args": {"command": "goto", "url": "http://localhost:8001"},
+                   "args": {"command": "goto", "url": portal_url},
                    "expected_outcome": "portal login page"}
     LOGIN_PORTAL = {"thought": "Log into vendor portal", "action": "browser",
                     "args": {"command": "fill_form",
                              "fields": [{"id": "e1", "value": "admin"}, {"id": "e2", "value": "password123"}], "submit": "e3"},
                     "expected_outcome": "invoice list"}
     GOTO_ERP = {"thought": "Navigate to ERP", "action": "browser",
-                "args": {"command": "goto", "url": "http://localhost:8002"},
+                "args": {"command": "goto", "url": erp_url},
                 "expected_outcome": "ERP login page"}
     LOGIN_ERP = {"thought": "Log into ERP", "action": "browser",
                  "args": {"command": "fill_form",
@@ -156,7 +159,7 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
 
     base = [GOTO_PORTAL, LOGIN_PORTAL,
             {"thought": "View INV detail", "action": "browser",
-             "args": {"command": "goto", "url": "http://localhost:8001/invoice/INV-101"},
+             "args": {"command": "goto", "url": f"{portal_url}/invoice/INV-101"},
              "expected_outcome": "invoice details"},
             {"thought": "Extract details", "action": "browser",
              "args": {"command": "extract_text"}, "expected_outcome": "text extracted"},
@@ -170,7 +173,7 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
         "base_entry": base,
         "different_vendor": [GOTO_PORTAL, LOGIN_PORTAL,
                              {"thought": "View INV detail", "action": "browser",
-                              "args": {"command": "goto", "url": "http://localhost:8001/invoice/INV-200"},
+                              "args": {"command": "goto", "url": f"{portal_url}/invoice/INV-200"},
                               "expected_outcome": "invoice details"},
                              {"thought": "Extract details", "action": "browser",
                               "args": {"command": "extract_text"}, "expected_outcome": "text extracted"},
@@ -189,7 +192,7 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
                               "expected_outcome": "done"}],
         "overdue_flag": [GOTO_PORTAL, LOGIN_PORTAL,
                          {"thought": "View INV detail", "action": "browser",
-                          "args": {"command": "goto", "url": "http://localhost:8001/invoice/INV-101"},
+                          "args": {"command": "goto", "url": f"{portal_url}/invoice/INV-101"},
                           "expected_outcome": "invoice details"},
                          {"thought": "Extract", "action": "browser",
                           "args": {"command": "extract_text"}, "expected_outcome": "text"},
@@ -223,7 +226,7 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
                                  "expected_outcome": "done"}],
         "amount_only": [GOTO_PORTAL, LOGIN_PORTAL,
                         {"thought": "Get INV detail", "action": "browser",
-                         "args": {"command": "goto", "url": "http://localhost:8001/invoice/INV-101"},
+                         "args": {"command": "goto", "url": f"{portal_url}/invoice/INV-101"},
                          "expected_outcome": "details"},
                         {"thought": "Extract text", "action": "browser",
                          "args": {"command": "extract_text"}, "expected_outcome": "text"},
@@ -256,9 +259,9 @@ def _make_offline_sequence(task_id: str) -> list[dict]:
     return sequences.get(task_id, base)
 
 
-def _seed_dbs() -> None:
-    """Reset databases to a known clean state."""
-    subprocess.run([sys.executable, "mock_env/seed.py"], check=True, capture_output=True)
+def _seed_dbs(profile: str = "base") -> None:
+    """Reset databases to a known clean state via active environment profile."""
+    reset_all_apps(profile)
 
 
 def _set_chaos(flag: str | None) -> None:
@@ -279,23 +282,11 @@ def _run_offline_task(task: dict, chaos_flag: str | None) -> dict:
     task_id = task["id"]
     seq = _make_offline_sequence(task_id)
 
-    _seed_dbs()
-    _set_chaos(chaos_flag)
-
-    # Pre-seed ERP for duplicate_detection test
     if task_id == "duplicate_detection":
-        conn = sqlite3.connect("mock_env/erp/erp.db")
-        conn.row_factory = sqlite3.Row
-        try:
-            conn.execute(
-                "INSERT OR IGNORE INTO bills (invoice_id, vendor, amount, due_date, notes)"
-                " VALUES ('INV-101', 'Acme Corp', 1200.50, '2024-11-15', '')"
-            )
-            conn.commit()
-        except Exception:
-            pass
-        finally:
-            conn.close()
+        _seed_dbs("duplicate_erp")
+    else:
+        _seed_dbs("base")
+    _set_chaos(chaos_flag)
 
     task_args = {k: v for k, v in task.items()
                  if k in ("verifier", "vendor_name", "ignore_due_date", "expected_notes",
@@ -597,22 +588,33 @@ def main() -> int:
     erp_proc = None
     try:
         import socket
-        with socket.socket() as s:
-            portal_up = s.connect_ex(("localhost", 8001)) == 0
-        with socket.socket() as s:
-            erp_up = s.connect_ex(("localhost", 8002)) == 0
+        from urllib.parse import urlparse
 
-        if not portal_up:
-            print("[eval.runner] Starting Vendor Portal on :8001...")
+        portal_base = get_app_base_url("Vendor Portal")
+        erp_base = get_app_base_url("Internal ERP")
+        p_url = urlparse(portal_base)
+        e_url = urlparse(erp_base)
+        p_host = p_url.hostname or "localhost"
+        p_port = p_url.port or 8001
+        e_host = e_url.hostname or "localhost"
+        e_port = e_url.port or 8002
+
+        with socket.socket() as s:
+            portal_up = s.connect_ex((p_host, p_port)) == 0
+        with socket.socket() as s:
+            erp_up = s.connect_ex((e_host, e_port)) == 0
+
+        if not portal_up and p_host in ("localhost", "127.0.0.1"):
+            print(f"[eval.runner] Starting Vendor Portal on :{p_port}...")
             vp_proc = subprocess.Popen(
-                [sys.executable, "-m", "uvicorn", "mock_env.vendor_portal.main:app", "--port", "8001"],
+                [sys.executable, "-m", "uvicorn", "mock_env.vendor_portal.main:app", "--port", str(p_port)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             time.sleep(2)
-        if not erp_up:
-            print("[eval.runner] Starting ERP on :8002...")
+        if not erp_up and e_host in ("localhost", "127.0.0.1"):
+            print(f"[eval.runner] Starting ERP on :{e_port}...")
             erp_proc = subprocess.Popen(
-                [sys.executable, "-m", "uvicorn", "mock_env.erp.main:app", "--port", "8002"],
+                [sys.executable, "-m", "uvicorn", "mock_env.erp.main:app", "--port", str(e_port)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
             time.sleep(2)

@@ -159,3 +159,23 @@ async def verify_bill(invoice_id: str):
     if not bill:
         raise HTTPException(status_code=404, detail="Bill not found")
     return dict(bill)
+
+@app.get("/api/bills")
+async def api_bills():
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM bills").fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/admin/reset")
+async def admin_reset(request: Request, profile: str = "base"):
+    admin_token = os.getenv("ADMIN_TOKEN", "").strip()
+    provided_token = request.headers.get("x-admin-token", "").strip()
+    if not admin_token or provided_token != admin_token:
+        raise HTTPException(status_code=403, detail="Forbidden: Invalid or missing admin token")
+    try:
+        from mock_env.seed import seed_erp
+        seed_erp(profile)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reset failed: {e}")
+    return {"status": "ok", "app": "Internal ERP", "profile": profile}
+

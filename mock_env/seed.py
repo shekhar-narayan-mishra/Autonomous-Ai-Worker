@@ -38,6 +38,8 @@ def seed_erp(profile: str):
     
     if profile != "empty_erp":
         c.execute("INSERT INTO bills (invoice_id, amount, due_date, vendor, notes) VALUES ('INV-100', 500.0, '2024-10-01', 'Acme Corp', '')")
+    if profile in ("duplicate_erp", "with_inv101"):
+        c.execute("INSERT INTO bills (invoice_id, amount, due_date, vendor, notes) VALUES ('INV-101', 1200.50, '2024-11-15', 'Acme Corp', '')")
         
     conn.commit()
     conn.close()

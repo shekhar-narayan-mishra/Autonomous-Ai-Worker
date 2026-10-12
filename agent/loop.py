@@ -27,6 +27,7 @@ Tools:
 {tool_registry}
 
 Rules:
+- Before creating a record, check the destination for an existing record with the same key. If one exists with matching values, do not create another; finish and state it was already present.
 - Before leaving a page, save_fact every value you'll need later (ids, amounts, dates, names). Save all needed facts in one save_fact call.
 - Check Known Facts before revisiting a page. If already logged in to an app, don't log in again.
 - Ask human ONLY if ambiguous, critical info missing, or blocked.
@@ -147,6 +148,50 @@ async def run_loop(task: str, task_args: dict = None, max_steps: int = 30, event
 
     if os.path.exists(trace_path):
         os.remove(trace_path)
+
+    if task_args is None:
+        task_args = {}
+    task_args["trace_path"] = trace_path
+
+    # 3. Environment reset and precondition checks
+    reset_env = task_args.get("reset_env", False)
+    seed_profile = task_args.get("seed_profile", "base")
+
+    from agent.env_manager import reset_all_apps, check_preconditions, snapshot_erp_bills
+
+    if reset_env:
+        try:
+            reset_all_apps(seed_profile)
+        except Exception as exc:
+            err_msg = f"Environment reset failed: {exc}"
+            print(f"[Loop Abort] {err_msg}")
+            err_dict = {
+                "passed": False,
+                "status": "env_reset_failed",
+                "checks": [{"name": "Environment Reset", "passed": False, "details": err_msg}],
+                "evidence": {},
+                "report": err_msg
+            }
+            if event_bus:
+                await event_bus.emit("verifier_result", err_dict)
+            return err_dict
+
+        ok, precond_msg, erp_bills = check_preconditions(seed_profile)
+        if not ok:
+            print(f"[Loop Abort] {precond_msg}")
+            err_dict = {
+                "passed": False,
+                "status": "env_reset_failed",
+                "checks": [{"name": "Preconditions", "passed": False, "details": precond_msg}],
+                "evidence": {"initial_erp_bills": erp_bills},
+                "report": precond_msg
+            }
+            if event_bus:
+                await event_bus.emit("verifier_result", err_dict)
+            return err_dict
+
+    # Snapshot ERP bills before the run (after reset)
+    task_args["initial_erp_bills"] = snapshot_erp_bills()
 
     trace = TraceLogger(trace_path)
     memory = MemoryStore()

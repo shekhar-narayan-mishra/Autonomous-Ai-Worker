@@ -1,52 +1,70 @@
 """
-ReportVerifier — independent reconciliation verifier.
+ReportVerifier — independent reconciliation verifier over HTTP.
 
 Does NOT read the agent trace to determine correctness.
-Instead, queries both source (vendor portal) and destination (ERP) DBs,
+Instead, queries both source (vendor portal) and destination (ERP) APIs,
 computes the true mismatch set, then checks whether the agent's final
 summary mentioned each mismatched invoice.
-
-This ensures the agent cannot game verification by constructing a
-convincing-sounding summary string.
 """
 from __future__ import annotations
 
 import json
-import sqlite3
+import httpx
 
+from agent.env_manager import get_app_base_url
 from agent.verifier import BaseVerifier, CheckResult, VerifierResult
 
 
 class ReportVerifier(BaseVerifier):
     def verify(self, task_args: dict) -> VerifierResult:
         checks: list[CheckResult] = []
-        evidence: dict = {}
+        portal_url = get_app_base_url("Vendor Portal")
+        erp_url = get_app_base_url("Internal ERP")
+
+        evidence: dict = {
+            "portal_url": portal_url,
+            "erp_url": erp_url,
+        }
 
         # ------------------------------------------------------------------ #
-        # Step 1: Load ground truth from both DBs independently
+        # Step 1: Load ground truth from both APIs independently
         # ------------------------------------------------------------------ #
         try:
-            portal_db = sqlite3.connect("mock_env/vendor_portal/data.db")
-            portal_db.row_factory = sqlite3.Row
-            portal_invoices = {
-                row["id"]: {"amount": float(row["amount"]), "due_date": row["due_date"]}
-                for row in portal_db.execute("SELECT * FROM invoices")
-            }
-            portal_db.close()
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(f"{portal_url}/api/invoices")
+                if r.status_code != 200:
+                    checks.append(CheckResult(
+                        name="Portal API access",
+                        passed=False,
+                        details=f"Portal API at {portal_url}/api/invoices returned HTTP {r.status_code}: {r.text}"
+                    ))
+                    return VerifierResult(passed=False, checks=checks, evidence=evidence)
+                portal_data_list = r.json()
+                portal_invoices = {
+                    row["id"]: {"amount": float(row["amount"]), "due_date": row["due_date"]}
+                    for row in portal_data_list
+                }
         except Exception as exc:
-            checks.append(CheckResult(name="Portal DB access", passed=False, details=str(exc)))
+            checks.append(CheckResult(name="Portal API access", passed=False, details=str(exc)))
             return VerifierResult(passed=False, checks=checks, evidence=evidence)
 
         try:
-            erp_db = sqlite3.connect("mock_env/erp/erp.db")
-            erp_db.row_factory = sqlite3.Row
-            erp_bills = {
-                row["invoice_id"]: {"amount": float(row["amount"]), "due_date": row["due_date"]}
-                for row in erp_db.execute("SELECT * FROM bills")
-            }
-            erp_db.close()
+            with httpx.Client(timeout=10.0) as client:
+                r = client.get(f"{erp_url}/api/bills")
+                if r.status_code != 200:
+                    checks.append(CheckResult(
+                        name="ERP API access",
+                        passed=False,
+                        details=f"ERP API at {erp_url}/api/bills returned HTTP {r.status_code}: {r.text}"
+                    ))
+                    return VerifierResult(passed=False, checks=checks, evidence=evidence)
+                erp_data_list = r.json()
+                erp_bills = {
+                    row["invoice_id"]: {"amount": float(row["amount"]), "due_date": row["due_date"]}
+                    for row in erp_data_list
+                }
         except Exception as exc:
-            checks.append(CheckResult(name="ERP DB access", passed=False, details=str(exc)))
+            checks.append(CheckResult(name="ERP API access", passed=False, details=str(exc)))
             return VerifierResult(passed=False, checks=checks, evidence=evidence)
 
         evidence["portal_invoices"] = portal_invoices
@@ -74,13 +92,15 @@ class ReportVerifier(BaseVerifier):
 
         # ------------------------------------------------------------------ #
         # Step 3: Read agent's final summary from trace (for coverage check)
-        #         — but only as a secondary check, not the primary source of truth
         # ------------------------------------------------------------------ #
         agent_summary = ""
         try:
             import os
-            if os.path.exists("trace.jsonl"):
-                with open("trace.jsonl", "r") as f:
+            trace_file = task_args.get("trace_path", "trace.jsonl")
+            if not os.path.exists(trace_file) and os.path.exists("trace.jsonl"):
+                trace_file = "trace.jsonl"
+            if os.path.exists(trace_file):
+                with open(trace_file, "r") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -100,11 +120,10 @@ class ReportVerifier(BaseVerifier):
         # Step 4: Verify the agent mentioned each true mismatch in its summary
         # ------------------------------------------------------------------ #
         if not true_mismatches:
-            # No mismatches exist — agent should report nothing or say "all match"
             checks.append(CheckResult(
                 name="No mismatches to report",
                 passed=True,
-                details="Portal and ERP are in sync. Agent reporting optional."
+                details=f"Portal ({portal_url}) and ERP ({erp_url}) are in sync. Agent reporting optional."
             ))
         else:
             for inv_id in true_mismatches:
@@ -115,12 +134,12 @@ class ReportVerifier(BaseVerifier):
                     details=(
                         f"Agent summary {'mentions' if mentioned else 'does NOT mention'} {inv_id}."
                         f" True mismatch: portal={portal_invoices.get(inv_id)},"
-                        f" ERP={erp_bills.get(inv_id, 'MISSING')}"
+                        f" ERP at {erp_url}={erp_bills.get(inv_id, 'MISSING')}"
                     )
                 ))
 
         # ------------------------------------------------------------------ #
-        # Step 5: Check expected keywords if provided (optional secondary check)
+        # Step 5: Check expected keywords if provided
         # ------------------------------------------------------------------ #
         for kw in task_args.get("expected_in_summary", []):
             present = kw.lower() in agent_summary.lower()

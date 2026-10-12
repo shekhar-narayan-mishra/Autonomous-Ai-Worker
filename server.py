@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 import config
 from agent.events import EventBus
+from agent.env_manager import get_active_profile_name
 from agent.llm import LLMChainManager, get_chain_manager, run_preflight, set_chain_manager
 from agent.loop import run_loop
 
@@ -117,12 +118,12 @@ async def start_run(req: RunRequest, request: Request):
     async def agent_task():
         global active_run_id
         try:
-            import subprocess
-            import sys
-            if req.reset_env:
-                subprocess.run([sys.executable, "mock_env/seed.py", req.seed_profile], check=True)
-
-            task_args = {"verifier": "invoice_entry", "vendor_name": req.vendor_name}
+            task_args = {
+                "verifier": "invoice_entry",
+                "vendor_name": req.vendor_name,
+                "reset_env": req.reset_env,
+                "seed_profile": req.seed_profile,
+            }
             res = await run_loop(req.task, task_args=task_args, event_bus=bus, run_id=run_id)
             runs[run_id]["evidence"] = res
             await bus.emit("final", {"result": "success", "evidence": res})
@@ -327,6 +328,7 @@ async def get_version():
     demo_mode = os.getenv("DEMO_MODE", "").strip().lower()
     return {
         "git_sha": get_git_sha(),
+        "active_profile": get_active_profile_name(),
         "python_version": platform.python_version(),
         "packages": {
             "google_genai": pkg_ver("google-genai"),
@@ -418,15 +420,19 @@ async def get_env():
     for app_item in env_data.get("apps", []):
         app_copy = copy.deepcopy(app_item)
         if "credentials" in app_copy and isinstance(app_copy["credentials"], dict):
-            if "password" in app_copy["credentials"]:
-                app_copy["credentials"]["password"] = "***REDACTED***"
+            for k in list(app_copy["credentials"].keys()):
+                if any(s in k.lower() for s in ["password", "pwd", "secret", "token", "key"]):
+                    app_copy["credentials"][k] = "***REDACTED***"
         safe_apps.append(app_copy)
 
+    active_profile = get_active_profile_name()
     demo_mode = os.getenv("DEMO_MODE", "").strip().lower()
     if demo_mode == "replay_only":
         return {
+            "active_profile": active_profile,
             "apps": safe_apps,
             "effective_config": {
+                "active_profile": active_profile,
                 "max_steps": config.MAX_STEPS,
                 "wall_timeout_cap": config.WALL_TIMEOUT_CAP,
                 "tool_timeout_cap": config.TOOL_TIMEOUT_CAP,
@@ -447,8 +453,10 @@ async def get_env():
     chain_order = [f"{e.provider}/{e.model}" for e in mgr.chain] if mgr else [f"{r['provider']}/{r['model']}" for r in chain_info]
 
     return {
+        "active_profile": active_profile,
         "apps": safe_apps,
         "effective_config": {
+            "active_profile": active_profile,
             "max_steps": config.MAX_STEPS,
             "wall_timeout_cap": config.WALL_TIMEOUT_CAP,
             "tool_timeout_cap": config.TOOL_TIMEOUT_CAP,

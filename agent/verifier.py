@@ -36,20 +36,31 @@ def register_verifier(name: str, cls: type[BaseVerifier]) -> None:
 
 def get_verifier(name: str) -> BaseVerifier | None:
     """Return an instantiated verifier, or None if the name is not registered."""
+    if not _REGISTRY:
+        _register_all()
     cls = _REGISTRY.get(name)
     if cls is None:
         return None
     return cls()
 
 
-# ---- Register all known verifiers at import time (no network calls) ----
+# ---- Register all known verifiers (no network calls) ----
 
 def _register_all() -> None:
-    from verifiers.invoice_entry import InvoiceEntryVerifier
-    register_verifier("invoice_entry", InvoiceEntryVerifier)
+    try:
+        from verifiers.invoice_entry import InvoiceEntryVerifier
+        register_verifier("invoice_entry", InvoiceEntryVerifier)
+    except ImportError:
+        pass
 
-    from verifiers.report import ReportVerifier
-    register_verifier("report", ReportVerifier)
+    try:
+        from verifiers.report import ReportVerifier
+        register_verifier("report", ReportVerifier)
+    except ImportError:
+        pass
 
 
-_register_all()
+try:
+    _register_all()
+except Exception:
+    pass

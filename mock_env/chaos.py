@@ -6,8 +6,14 @@ CHAOS_FILE = "chaos_state.json"
 def get_chaos():
     if not os.path.exists(CHAOS_FILE):
         return {}
-    with open(CHAOS_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(CHAOS_FILE, "r") as f:
+            content = f.read().strip()
+            if not content:
+                return {}
+            return json.loads(content)
+    except Exception:
+        return {}
 
 def set_chaos(flags):
     with open(CHAOS_FILE, "w") as f:
