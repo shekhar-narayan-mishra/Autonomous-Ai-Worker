@@ -769,15 +769,7 @@
 
         <!-- Main Content -->
         <main class="main-content">
-            <div id="replay-banner-container">
-                <div id="replay-mode-banner" style="display: none; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.35); color: #93c5fd; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 16px;">📼</span>
-                        <span><strong>REPLAY of a recorded run</strong> — live model execution is disabled in replay demo mode</span>
-                    </div>
-                    <span id="replay-badge-tag" style="font-family: monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.25);">REPLAY ONLY</span>
-                </div>
-            </div>
+            <div id="replay-banner-container"></div>
             <div class="main-grid">
                 <!-- Timeline -->
                 <section class="timeline-section">
@@ -885,20 +877,12 @@
                     }
                 }
 
-                // 2. Configure replay_only UI mode
-                if (isReplayMode) {
-                    const liveControls = document.getElementById('live-run-controls');
-                    if (liveControls) liveControls.style.display = 'none';
-
-                    const banner = document.getElementById('replay-mode-banner');
-                    if (banner) banner.style.display = 'flex';
-
-                    const demoSec = document.getElementById('demo-runs-section');
-                    if (demoSec) demoSec.style.display = 'block';
-                }
+                // Ensure live controls are always active for normal execution
+                const liveControls = document.getElementById('live-run-controls');
+                if (liveControls) liveControls.style.display = 'block';
 
                 // Load demo runs list
-                loadDemoRuns(isReplayMode);
+                loadDemoRuns(false);
             });
         };
 

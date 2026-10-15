@@ -13,7 +13,7 @@ services:
       - key: ENVIRONMENT_FILE
         value: "config/environment.render.yaml"
       - key: DEMO_MODE
-        value: "replay_only"
+        value: ""
       - key: PYTHONUNBUFFERED
         value: "1"
       # Dashboard-configured secrets (sync: false, values never committed)
